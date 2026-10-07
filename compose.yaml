@@ -1,0 +1,13 @@
+services:
+  bot:
+    build: .
+    container_name: whitebird-wow-role-sync
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - type: bind
+        source: ./data
+        target: /app/data
+        bind:
+          create_host_path: false

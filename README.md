@@ -42,29 +42,28 @@ Los rangos son las posiciones numéricas del roster de Blizzard (0 es Guild Mast
 `WOW_SYNC_INTERVAL_MINUTES=0` mantiene la sincronización manual. Para sincronizar cada seis horas, usa `360`.
 
 
-## Despliegue con Docker Engine (sin Compose)
+## Despliegue con Docker Compose
 
-Desde este directorio, en el servidor Ubuntu:
+Desde este directorio, en el servidor Ubuntu, crea el archivo de configuración y completa sus valores:
 
 ```sh
 cp .env.example .env
-# Edita .env y completa los valores antes de seguir.
 mkdir -p data
-docker build -t whitebird-wow-role-sync .
-docker run --rm --env-file .env whitebird-wow-role-sync npm run register
-docker run -d --name whitebird-wow-role-sync --restart unless-stopped --env-file .env -v "$(pwd)/data:/app/data" whitebird-wow-role-sync
-docker logs -f whitebird-wow-role-sync
+# Edita .env y completa los valores antes de seguir.
+docker compose run --rm bot npm run register
+docker compose up -d --build
+docker compose logs -f bot
 ```
 
-Para actualizar, guarda una copia de `data/`, trae el proyecto nuevo y ejecuta:
+`docker compose run --rm bot npm run register` registra o actualiza los comandos de Discord. Hay que repetirlo cuando se modifiquen los comandos. Para parar el bot sin borrar sus datos:
 
 ```sh
-docker stop whitebird-wow-role-sync
-docker rm whitebird-wow-role-sync
-docker build -t whitebird-wow-role-sync .
-docker run --rm --env-file .env whitebird-wow-role-sync npm run register
-docker run -d --name whitebird-wow-role-sync --restart unless-stopped --env-file .env -v "$(pwd)/data:/app/data" whitebird-wow-role-sync
+docker compose down
 ```
+
+Para actualizar el código, trae los cambios del proyecto y ejecuta `docker compose run --rm bot npm run register` si cambiaron los comandos, seguido de `docker compose up -d --build`. La base de datos permanece en `data/` aunque se reconstruya o se pare el contenedor.
+
+La carpeta `data/` del host contiene `whitebird-wow-roles.sqlite`. Para que el bot de recruitment comparta los vínculos de los applies aceptados, configura allí `WOW_ROLE_SYNC_DATA_DIR` con la ruta absoluta a esta carpeta; ambos contenedores deben montar esa misma carpeta.
 
 ## Ejecución directa con Node.js
 
