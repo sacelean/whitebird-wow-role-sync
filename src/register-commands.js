@@ -22,6 +22,9 @@ const commands = [
   new SlashCommandBuilder()
     .setName('syncwow')
     .setDescription('Sincroniza los roles de rango y profesión (oficiales)'),
+  new SlashCommandBuilder()
+    .setName('wow-vinculaciones')
+    .setDescription('Muestra vinculaciones guardadas y propuestas pendientes (oficiales)'),
 ].map((command) => command.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(token);

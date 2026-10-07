@@ -9,6 +9,7 @@ Bot de Discord independiente para vincular mains del roster de la guild en Blizz
 3. Si el nombre no coincide, un oficial puede usar `/wow-vincular usuario:@miembro personaje:Nombre reino:Reino`.
 4. Un oficial ejecuta `/syncwow` para sincronizar roles. También se puede activar una frecuencia automática.
 5. Cada miembro puede ejecutar `/wow-desvincular` para retirar su vínculo.
+6. Los oficiales consultan `/wow-vinculaciones` para ver los vínculos guardados y las propuestas automáticas aún pendientes de confirmación.
 
 Las vinculaciones se guardan en `data/whitebird-wow-roles.sqlite`. Blizzard valida que el personaje forma parte del roster y proporciona el rango; la API de perfil de Blizzard proporciona las profesiones. Si Blizzard no tiene profesiones disponibles, el bot conserva los roles de profesión que ya tuviera esa persona.
 
@@ -40,6 +41,8 @@ WOW_SYNC_INTERVAL_MINUTES=0
 Los rangos son las posiciones numéricas del roster de Blizzard (0 es Guild Master). Las profesiones se configuran con sus nombres ingleses y requieren `WOW_LOCALE=en_US`. Sustituye los ejemplos por IDs de roles que ya existan en el servidor. El bot no crea, cambia de nombre ni elimina roles; solo añade y retira los IDs enumerados en los dos mapas. La vinculación automática solo busca entre miembros actuales del roster de la guild configurada.
 
 `WOW_SYNC_INTERVAL_MINUTES=0` mantiene la sincronización manual. Para sincronizar cada seis horas, usa `360`.
+
+Las propuestas pendientes de `/wow-vincular-auto` se guardan temporalmente en memoria, caducan a los cinco minutos y se muestran en `/wow-vinculaciones`. Si se reinicia el bot, esas propuestas desaparecen; los vínculos confirmados sí permanecen guardados en SQLite.
 
 
 ## Despliegue con Docker Compose

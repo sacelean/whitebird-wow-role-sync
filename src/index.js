@@ -138,6 +138,44 @@ async function runSync(guild) {
   return synchronizeWowRoles(guild, linked);
 }
 
+function buildLinkReport(targetGuildId) {
+  const linked = getWowLinks(targetGuildId);
+  const pending = [...pendingWowLinks.entries()]
+    .filter(([, item]) => item.guildId === targetGuildId && item.expiresAt > Date.now());
+  for (const [nonce, item] of pendingWowLinks) {
+    if (item.expiresAt <= Date.now()) pendingWowLinks.delete(nonce);
+  }
+
+  const lines = [`**Vinculaciones guardadas (${linked.length})**`];
+  lines.push(...(linked.length
+    ? linked.map((link) => `• <@${link.user_id}> — **${link.character_name}** · ${link.realm_slug}`)
+    : ['• No hay vinculaciones guardadas.']));
+  lines.push('', `**Pendientes de confirmación (${pending.length})**`);
+  lines.push(...(pending.length
+    ? pending.map(([, item]) => item.character
+      ? `• <@${item.userId}> — debe confirmar **${item.character.name}** · ${item.character.realm}`
+      : `• <@${item.userId}> — debe elegir entre ${item.candidates.length} personajes`)
+    : ['• No hay propuestas pendientes.']));
+  lines.push('', '_Las propuestas pendientes duran 5 minutos y desaparecen si se reinicia el bot._');
+  return lines;
+}
+
+function splitReport(lines, maxLength = 1800) {
+  const pages = [];
+  let page = '';
+  for (const line of lines) {
+    const next = page ? `${page}\n${line}` : line;
+    if (next.length > maxLength && page) {
+      pages.push(page);
+      page = line;
+    } else {
+      page = next;
+    }
+  }
+  if (page) pages.push(page);
+  return pages;
+}
+
 client.once(Events.ClientReady, (readyClient) => {
   console.log(`Whitebird WoW Role Sync conectado como ${readyClient.user.tag}`);
   const intervalMinutes = Number.parseInt(process.env.WOW_SYNC_INTERVAL_MINUTES || '0', 10);
@@ -199,6 +237,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const lines = [`Sincronización terminada: **${report.synced}** vinculaciones procesadas.`];
       if (report.skipped.length) lines.push(`Omitidas (${report.skipped.length}): ${report.skipped.slice(0, 8).join('; ')}`);
       return interaction.editReply(lines.join('\n').slice(0, 1950));
+    }
+
+    if (interaction.commandName === 'wow-vinculaciones') {
+      if (!isOfficer(interaction)) return interaction.reply(unauthorizedReply());
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      const pages = splitReport(buildLinkReport(guildId));
+      await interaction.editReply({ content: pages[0], allowedMentions: { parse: [] } });
+      for (const page of pages.slice(1)) {
+        await interaction.followUp({ content: page, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
+      }
+      return;
     }
 
   } catch (error) {
