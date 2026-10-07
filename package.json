@@ -1,0 +1,18 @@
+{
+  "name": "whitebird-wow-role-sync",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Independent Discord bot to sync Whitebird WoW guild ranks and professions",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "register": "node src/register-commands.js"
+  },
+  "engines": { "node": ">=20.11.0" },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "discord.js": "^14.21.0",
+    "dotenv": "^16.6.1"
+  }
+}
