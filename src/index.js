@@ -13,10 +13,10 @@ import {
 } from 'discord.js';
 import { getWowLinks, removeWowLink, saveWowLink } from './database.js';
 import {
-  fetchWowAuditCharacters,
-  rankWowAuditCandidates,
+  fetchGuildRoster,
+  findGuildRosterCharacter,
+  rankGuildRosterCandidates,
   synchronizeWowRoles,
-  validateWowAuditCharacter
 } from './wow-sync.js';
 
 const token = process.env.DISCORD_TOKEN;
@@ -50,7 +50,7 @@ function confirmationRow(nonce) {
 function matchOptions(candidates) {
   return new StringSelectMenuBuilder()
     .setCustomId(`wow-link-choose:${candidates.nonce}`)
-    .setPlaceholder('Elige tu main del roster de WoWAudit')
+    .setPlaceholder('Elige tu main del roster de Blizzard')
     .setMinValues(1)
     .setMaxValues(1)
     .addOptions(candidates.items.map((candidate, index) => ({
@@ -62,9 +62,9 @@ function matchOptions(candidates) {
 
 async function autoLink(interaction) {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-  const characters = await fetchWowAuditCharacters();
+  const roster = await fetchGuildRoster();
   const member = await interaction.guild.members.fetch(interaction.user.id);
-  const ranked = rankWowAuditCandidates(characters, [member.displayName, interaction.user.globalName, interaction.user.username]);
+  const ranked = rankGuildRosterCandidates(roster, [member.displayName, interaction.user.globalName, interaction.user.username]);
   const best = ranked[0];
   if (!best || best.score < 0.62) {
     return interaction.editReply('No encuentro una coincidencia clara con tu nombre. Pide a un oficial que use `/wow-vincular usuario personaje reino`.');
@@ -177,14 +177,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const target = interaction.options.getUser('usuario', true);
       const name = interaction.options.getString('personaje', true).trim();
       const realm = interaction.options.getString('reino', true).trim();
-      const characters = await fetchWowAuditCharacters();
-      const match = validateWowAuditCharacter(characters, name, realm);
-      if (!match) return interaction.editReply(`No encuentro **${name}** en **${realm}** dentro del roster de WoWAudit.`);
-      const characterName = match.name || match.character_name || match.characterName || match.character?.name;
-      const characterRealm = match.realm_slug || match.realmSlug || match.realm?.slug || match.realm?.name || match.realm || match.character?.realm?.slug;
-      const realmSlug = typeof characterRealm === 'object' ? (characterRealm.slug || characterRealm.name) : String(characterRealm);
-      saveWowLink(guildId, target.id, characterName, realmSlug);
-      return interaction.editReply(`Vinculado **${characterName}** · **${realmSlug}** con <@${target.id}>.`);
+      const roster = await fetchGuildRoster();
+      const match = findGuildRosterCharacter(roster, name, realm);
+      if (!match) return interaction.editReply(`No encuentro **${name}** · **${realm}** en el roster de la guild de Blizzard.`);
+      saveWowLink(guildId, target.id, match.name, match.realm);
+      return interaction.editReply(`Vinculado **${match.name}** · **${match.realm}** con <@${target.id}>.`);
     }
 
     if (interaction.commandName === 'wow-desvincular') {

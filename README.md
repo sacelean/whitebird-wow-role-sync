@@ -1,16 +1,18 @@
 # Whitebird WoW Role Sync
 
-Bot de Discord independiente para vincular mains del roster de WoWAudit y sincronizar roles de rango de guild y profesión. No contiene comandos ni código de la ruleta de alters.
+Bot de Discord independiente para vincular mains del roster de la guild en Blizzard y sincronizar roles de rango y profesión. No contiene comandos ni código de la ruleta de alters.
 
 ## Flujo
 
-1. Cada miembro ejecuta `/wow-vincular-auto`. El bot compara su apodo y nombres de Discord con WoWAudit.
+1. Cada miembro ejecuta `/wow-vincular-auto`. El bot compara su apodo y nombres de Discord con los personajes del roster de la guild publicado por Blizzard.
 2. Si encuentra una coincidencia clara, pide confirmación. Si hay varias, la persona elige una y confirma. No guarda nada antes de la confirmación.
 3. Si el nombre no coincide, un oficial puede usar `/wow-vincular usuario:@miembro personaje:Nombre reino:Reino`.
 4. Un oficial ejecuta `/syncwow` para sincronizar roles. También se puede activar una frecuencia automática.
 5. Cada miembro puede ejecutar `/wow-desvincular` para retirar su vínculo.
 
-Las vinculaciones se guardan en `data/whitebird-wow-roles.sqlite`. WoWAudit valida que el personaje forma parte de su roster; Blizzard proporciona el rango del roster y las profesiones del personaje. Si Blizzard no tiene profesiones disponibles, el bot conserva los roles de profesión que ya tuviera esa persona.
+Las vinculaciones se guardan en `data/whitebird-wow-roles.sqlite`. Blizzard valida que el personaje forma parte del roster y proporciona el rango; la API de perfil de Blizzard proporciona las profesiones. Si Blizzard no tiene profesiones disponibles, el bot conserva los roles de profesión que ya tuviera esa persona.
+
+El bot de recruitment puede compartir este mismo archivo SQLite y guardar automáticamente el personaje main y reino del apply al aceptarlo. En ese caso, monta la misma carpeta de datos del servidor en ambos contenedores; no copies la base de datos a otra ubicación. Después de la aceptación, ejecuta `/syncwow` o espera al siguiente ciclo automático para asignar los roles.
 
 ## Configuración
 
@@ -24,7 +26,6 @@ DISCORD_TOKEN=...
 DISCORD_CLIENT_ID=...
 DISCORD_GUILD_ID=...
 OFFICER_ROLE_IDS=id_rol_oficial,id_rol_oficial2
-WOWAUDIT_API_KEY=...
 BLIZZARD_CLIENT_ID=...
 BLIZZARD_CLIENT_SECRET=...
 WOW_REGION=eu
@@ -36,7 +37,7 @@ WOW_PROFESSION_ROLE_IDS={"Alchemy":"id_rol_alquimia","Blacksmithing":"id_rol_her
 WOW_SYNC_INTERVAL_MINUTES=0
 ```
 
-Obtén la clave de WoWAudit en **Settings → Team → API key**. Los rangos son las posiciones numéricas del roster de Blizzard (0 es Guild Master). Las profesiones se configuran con sus nombres ingleses y requieren `WOW_LOCALE=en_US`. Sustituye los ejemplos por IDs de roles que ya existan en el servidor. El bot no crea, cambia de nombre ni elimina roles; solo añade y retira los IDs enumerados en los dos mapas.
+Los rangos son las posiciones numéricas del roster de Blizzard (0 es Guild Master). Las profesiones se configuran con sus nombres ingleses y requieren `WOW_LOCALE=en_US`. Sustituye los ejemplos por IDs de roles que ya existan en el servidor. El bot no crea, cambia de nombre ni elimina roles; solo añade y retira los IDs enumerados en los dos mapas. La vinculación automática solo busca entre miembros actuales del roster de la guild configurada.
 
 `WOW_SYNC_INTERVAL_MINUTES=0` mantiene la sincronización manual. Para sincronizar cada seis horas, usa `360`.
 

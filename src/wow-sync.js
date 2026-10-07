@@ -4,8 +4,6 @@ const region = (process.env.WOW_REGION || '').trim().toLowerCase();
 const locale = (process.env.WOW_LOCALE || '').trim();
 const clientId = process.env.BLIZZARD_CLIENT_ID;
 const clientSecret = process.env.BLIZZARD_CLIENT_SECRET;
-const wowauditApiKey = process.env.WOWAUDIT_API_KEY;
-const wowauditApiBase = (process.env.WOWAUDIT_API_BASE_URL || 'https://api.wowaudit.com').replace(/\/$/, '');
 const realmSlug = (process.env.WOW_GUILD_REALM_SLUG || '').trim().toLowerCase();
 const guildSlug = (process.env.WOW_GUILD_SLUG || '').trim().toLowerCase();
 
@@ -21,8 +19,8 @@ function parseRoleMap(envName) {
 }
 
 export function getWowConfig() {
-  if (!region || !locale || !clientId || !clientSecret || !wowauditApiKey || !realmSlug || !guildSlug) {
-    throw new Error('Configura WOWAUDIT_API_KEY, BLIZZARD_CLIENT_ID, BLIZZARD_CLIENT_SECRET, WOW_REGION, WOW_LOCALE, WOW_GUILD_REALM_SLUG y WOW_GUILD_SLUG.');
+  if (!region || !locale || !clientId || !clientSecret || !realmSlug || !guildSlug) {
+    throw new Error('Configura BLIZZARD_CLIENT_ID, BLIZZARD_CLIENT_SECRET, WOW_REGION, WOW_LOCALE, WOW_GUILD_REALM_SLUG y WOW_GUILD_SLUG.');
   }
   if (!['us', 'eu', 'kr', 'tw'].includes(region)) throw new Error('WOW_REGION debe ser us, eu, kr o tw.');
   const rankRoles = parseRoleMap('WOW_RANK_ROLE_IDS');
@@ -71,20 +69,6 @@ export async function fetchGuildRoster() {
   return blizzardGet(`/data/wow/guild/${encodeURIComponent(realmSlug)}/${encodeURIComponent(guildSlug)}/roster`, 'profile', config.region);
 }
 
-export async function fetchWowAuditCharacters() {
-  const response = await fetch(`${wowauditApiBase}/v1/characters`, {
-    headers: { Authorization: `Bearer ${wowauditApiKey}` }
-  });
-  if (!response.ok) throw new Error(`WoWAudit devolvió HTTP ${response.status} al leer el roster.`);
-  const payload = await response.json();
-  const characters = Array.isArray(payload) ? payload
-    : Array.isArray(payload.data) ? payload.data
-      : Array.isArray(payload.characters) ? payload.characters
-        : Array.isArray(payload.data?.characters) ? payload.data.characters : null;
-  if (!characters) throw new Error('La respuesta de WoWAudit no contiene una lista de personajes reconocible.');
-  return characters;
-}
-
 async function fetchCharacterProfessions(name, realm, selectedRegion) {
   return blizzardGet(`/profile/wow/character/${encodeURIComponent(realm)}/${encodeURIComponent(name)}/professions`, 'profile', selectedRegion);
 }
@@ -97,15 +81,6 @@ function findRosterEntry(roster, name, realm) {
   return (roster.members || []).find(({ character }) =>
     normalize(character?.name) === targetName && normalize(character?.realm?.slug) === targetRealm
   ) || null;
-}
-
-function getCharacterName(entry) {
-  return entry.name || entry.character_name || entry.characterName || entry.character?.name || '';
-}
-
-function getCharacterRealm(entry) {
-  const value = entry.realm_slug || entry.realmSlug || entry.realm?.slug || entry.realm?.name || entry.realm || entry.character?.realm?.slug || '';
-  return typeof value === 'object' ? (value.slug || value.name || '') : String(value);
 }
 
 function similarity(left, right) {
@@ -128,12 +103,12 @@ function similarity(left, right) {
   return 1 - previous[right.length] / Math.max(left.length, right.length);
 }
 
-export function rankWowAuditCandidates(characters, aliases) {
+export function rankGuildRosterCandidates(roster, aliases) {
   const names = aliases.map(normalize).filter(Boolean);
   const byKey = new Map();
-  for (const entry of characters) {
-    const name = getCharacterName(entry);
-    const realm = getCharacterRealm(entry);
+  for (const entry of roster.members || []) {
+    const name = entry.character?.name;
+    const realm = entry.character?.realm?.slug;
     if (!name || !realm) continue;
     const key = `${normalize(name)}@${normalize(realm)}`;
     const candidateNames = [normalize(name), normalize(`${name}${realm}`)];
@@ -165,7 +140,6 @@ async function reconcileRoles(member, desiredIds, managedIds, botMember) {
 export async function synchronizeWowRoles(guild, linkedMembers) {
   const config = getWowConfig();
   const roster = await fetchGuildRoster();
-  const auditCharacters = await fetchWowAuditCharacters();
   const rankRoleIds = new Set(Object.values(config.rankRoles));
   const professionRoleIds = new Set(Object.values(config.professionRoles));
   const managedIds = new Set([...rankRoleIds, ...professionRoleIds]);
@@ -179,14 +153,6 @@ export async function synchronizeWowRoles(guild, linkedMembers) {
   const report = { synced: 0, skipped: [], failed: [] };
 
   for (const link of linkedMembers) {
-    const auditCharacter = auditCharacters.find((entry) =>
-      normalize(getCharacterName(entry)) === normalize(link.character_name) &&
-      normalize(getCharacterRealm(entry)) === normalize(link.realm_slug)
-    );
-    if (!auditCharacter) {
-      report.skipped.push(`${link.character_name}-${link.realm_slug}: no aparece en el roster de WoWAudit`);
-      continue;
-    }
     const rosterEntry = findRosterEntry(roster, link.character_name, link.realm_slug);
     if (!rosterEntry) {
       report.skipped.push(`${link.character_name}-${link.realm_slug}: no aparece en el roster`);
@@ -222,9 +188,8 @@ export async function synchronizeWowRoles(guild, linkedMembers) {
   return report;
 }
 
-export function validateWowAuditCharacter(characters, name, realm) {
-  return characters.find((entry) =>
-    normalize(getCharacterName(entry)) === normalize(name) &&
-    normalize(getCharacterRealm(entry)) === normalize(realm)
-  ) || null;
+export function findGuildRosterCharacter(roster, name, realm) {
+  const entry = findRosterEntry(roster, name, realm);
+  if (!entry) return null;
+  return { name: entry.character.name, realm: entry.character.realm.slug, rank: entry.rank };
 }

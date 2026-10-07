@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Independent Discord bot to sync Whitebird WoW guild ranks and professions",
+  "description": "Independent Discord bot to sync Whitebird WoW guild ranks and professions using the Blizzard API",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",

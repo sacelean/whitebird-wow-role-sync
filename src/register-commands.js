@@ -9,7 +9,7 @@ if (!token || !clientId || !guildId) throw new Error('Configura DISCORD_TOKEN, D
 const commands = [
   new SlashCommandBuilder()
     .setName('wow-vincular-auto')
-    .setDescription('Busca tu main de WoW comparando tu nombre con el roster de WoWAudit'),
+    .setDescription('Busca tu main de WoW comparando tu nombre con el roster de Blizzard'),
   new SlashCommandBuilder()
     .setName('wow-vincular')
     .setDescription('Vincula un usuario de Discord con su personaje main (oficiales)')
