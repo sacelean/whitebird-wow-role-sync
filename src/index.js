@@ -223,8 +223,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     if (interaction.commandName === 'wow-desvincular') {
-      const removed = removeWowLink(guildId, interaction.user.id);
-      return interaction.reply({ content: removed ? 'Se quitó tu vinculación de WoW.' : 'No tienes un personaje vinculado.', flags: MessageFlags.Ephemeral });
+      if (!isOfficer(interaction)) return interaction.reply(unauthorizedReply());
+      const target = interaction.options.getUser('usuario', true);
+      const removed = removeWowLink(guildId, target.id);
+      return interaction.reply({
+        content: removed ? `Se quitó la vinculación de WoW de <@${target.id}>.` : `<@${target.id}> no tenía un personaje vinculado.`,
+        flags: MessageFlags.Ephemeral,
+        allowedMentions: { parse: [] }
+      });
     }
 
     if (interaction.commandName === 'syncwow') {

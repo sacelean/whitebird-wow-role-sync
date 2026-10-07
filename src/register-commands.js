@@ -18,7 +18,8 @@ const commands = [
     .addStringOption((option) => option.setName('reino').setDescription('Reino del personaje').setRequired(true)),
   new SlashCommandBuilder()
     .setName('wow-desvincular')
-    .setDescription('Quita tu vinculación de WoW'),
+    .setDescription('Quita la vinculación de WoW de un usuario (oficiales)')
+    .addUserOption((option) => option.setName('usuario').setDescription('Miembro de Discord').setRequired(true)),
   new SlashCommandBuilder()
     .setName('syncwow')
     .setDescription('Sincroniza los roles de rango y profesión (oficiales)'),
