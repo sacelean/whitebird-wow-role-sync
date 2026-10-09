@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { saveWowLink } from './database.js';
 
 const region = (process.env.WOW_REGION || '').trim().toLowerCase();
 const locale = (process.env.WOW_LOCALE || '').trim();
@@ -77,7 +78,13 @@ async function fetchCharacterProfessions(name, realm, selectedRegion) {
   return blizzardGet(`/profile/wow/character/${encodeURIComponent(realm.toLowerCase())}/${encodeURIComponent(name.toLowerCase())}/professions`, 'profile', selectedRegion);
 }
 
-const normalize = (value) => String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+// Character accents are significant in WoW names: Agô and Agó must not resolve to the same character.
+const normalize = (value) => String(value || '').normalize('NFC').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+const normalizeIgnoringAccents = (value) => String(value || '').normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+
+function differsOnlyByAccents(left, right) {
+  return normalize(left) !== normalize(right) && normalizeIgnoringAccents(left) === normalizeIgnoringAccents(right);
+}
 
 function findRosterEntry(roster, name, realm) {
   const targetName = normalize(name);
@@ -116,7 +123,9 @@ export function rankGuildRosterCandidates(roster, aliases) {
     if (!name || !realm) continue;
     const key = `${normalize(name)}@${normalize(realm)}`;
     const candidateNames = [normalize(name), normalize(`${name}${realm}`)];
-    const score = Math.max(0, ...names.flatMap((alias) => candidateNames.map((candidate) => similarity(alias, candidate))));
+    const score = Math.max(0, ...names.flatMap((alias) => candidateNames.map((candidate) =>
+      differsOnlyByAccents(alias, candidate) ? 0 : similarity(alias, candidate)
+    )));
     const previous = byKey.get(key);
     if (!previous || score > previous.score) byKey.set(key, { name, realm, score });
   }
@@ -164,7 +173,7 @@ export async function synchronizeWowRoles(guild, linkedMembers) {
       throw new Error(`El rol configurado ${id} no existe en el servidor o está fuera de la jerarquía que puede gestionar el bot. No se han aplicado cambios.`);
     }
   }
-  const report = { synced: 0, ranksChecked: 0, defaultRankApplied: 0, professionsChecked: 0, skipped: [], failed: [] };
+  const report = { synced: 0, ranksChecked: 0, defaultRankApplied: 0, rankDetails: [], professionsChecked: 0, skipped: [], failed: [] };
 
   for (const link of linkedMembers) {
     const rosterEntry = findRosterEntry(roster, link.character_name, link.realm_slug);
@@ -173,6 +182,13 @@ export async function synchronizeWowRoles(guild, linkedMembers) {
       continue;
     }
     const character = rosterEntry.character;
+    if (link.character_name !== character.name || link.realm_slug !== character.realm.slug) {
+      try {
+        saveWowLink(guild.id, link.user_id, character.name, character.realm.slug);
+      } catch (error) {
+        report.failed.push(`${character.name}: no se pudo normalizar el nombre guardado (${error.message})`);
+      }
+    }
     let member;
     try {
       member = await guild.members.fetch(link.user_id);
@@ -187,7 +203,9 @@ export async function synchronizeWowRoles(guild, linkedMembers) {
     try {
       await reconcileRoles(member, new Set([rankRoleId]), rankRoleIds, botMember);
       report.ranksChecked += 1;
+      const roleName = guild.roles.cache.get(rankRoleId)?.name || rankRoleId;
       if (!configuredRankRoleId) report.defaultRankApplied += 1;
+      report.rankDetails.push(`${character.name}: rango ${rankKey} → ${roleName}${configuredRankRoleId ? '' : ' (predeterminado)'}`);
     } catch (error) {
       report.failed.push(`${character.name}: rango ${rankKey} sin actualizar (${error.message})`);
     }
