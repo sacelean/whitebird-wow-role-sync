@@ -14,6 +14,8 @@ import {
 import { getWowLinks, removeWowLink, saveWowLink } from './database.js';
 import {
   fetchGuildRoster,
+  getUnlinkedMappedRosterMembers,
+  getWowConfig,
   findGuildRosterCharacter,
   rankGuildRosterCandidates,
   synchronizeWowRoles,
@@ -138,7 +140,7 @@ async function runSync(guild) {
   return synchronizeWowRoles(guild, linked);
 }
 
-function buildLinkReport(targetGuildId) {
+async function buildLinkReport(targetGuildId) {
   const linked = getWowLinks(targetGuildId);
   const pending = [...pendingWowLinks.entries()]
     .filter(([, item]) => item.guildId === targetGuildId && item.expiresAt > Date.now());
@@ -146,10 +148,18 @@ function buildLinkReport(targetGuildId) {
     if (item.expiresAt <= Date.now()) pendingWowLinks.delete(nonce);
   }
 
+  const config = getWowConfig();
+  const roster = await fetchGuildRoster();
+  const unlinkedMapped = getUnlinkedMappedRosterMembers(roster, linked, config.rankRoles);
+
   const lines = [`**Vinculaciones guardadas (${linked.length})**`];
   lines.push(...(linked.length
     ? linked.map((link) => `• <@${link.user_id}> — **${link.character_name}** · ${link.realm_slug}`)
     : ['• No hay vinculaciones guardadas.']));
+  lines.push('', `**Roster con rango mapeado y sin vincular (${unlinkedMapped.length})**`);
+  lines.push(...(unlinkedMapped.length
+    ? unlinkedMapped.map((character) => `• **${character.name}** · ${character.realm} — rango ${character.rank}`)
+    : ['• Todos los personajes con rango mapeado están vinculados.']));
   lines.push('', `**Pendientes de confirmación (${pending.length})**`);
   lines.push(...(pending.length
     ? pending.map(([, item]) => item.character
@@ -252,7 +262,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.commandName === 'wow-vinculaciones') {
       if (!isOfficer(interaction)) return interaction.reply(unauthorizedReply());
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-      const pages = splitReport(buildLinkReport(guildId));
+      const pages = splitReport(await buildLinkReport(guildId));
       await interaction.editReply({ content: pages[0], allowedMentions: { parse: [] } });
       for (const page of pages.slice(1)) {
         await interaction.followUp({ content: page, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });

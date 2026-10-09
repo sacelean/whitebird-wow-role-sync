@@ -222,3 +222,17 @@ export function findGuildRosterCharacter(roster, name, realm) {
   if (!entry) return null;
   return { name: entry.character.name, realm: entry.character.realm.slug, rank: entry.rank };
 }
+
+export function getUnlinkedMappedRosterMembers(roster, linkedMembers, rankRoles) {
+  const linkedKeys = new Set(linkedMembers.map((link) =>
+    `${normalize(link.character_name)}@${normalize(link.realm_slug)}`
+  ));
+  return (roster.members || [])
+    .filter(({ character, rank }) => {
+      if (!rankRoles[String(rank)] || !character?.name || !character?.realm?.slug) return false;
+      const key = `${normalize(character.name)}@${normalize(character.realm.slug)}`;
+      return !linkedKeys.has(key);
+    })
+    .map(({ character, rank }) => ({ name: character.name, realm: character.realm.slug, rank }))
+    .sort((left, right) => left.rank - right.rank || left.name.localeCompare(right.name));
+}
