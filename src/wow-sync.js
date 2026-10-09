@@ -70,7 +70,8 @@ export async function fetchGuildRoster() {
 }
 
 async function fetchCharacterProfessions(name, realm, selectedRegion) {
-  return blizzardGet(`/profile/wow/character/${encodeURIComponent(realm)}/${encodeURIComponent(name)}/professions`, 'profile', selectedRegion);
+  // Blizzard's profile endpoints require the character name in lowercase.
+  return blizzardGet(`/profile/wow/character/${encodeURIComponent(realm.toLowerCase())}/${encodeURIComponent(name.toLowerCase())}/professions`, 'profile', selectedRegion);
 }
 
 const normalize = (value) => String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
