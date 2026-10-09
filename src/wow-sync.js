@@ -150,6 +150,7 @@ async function reconcileRoles(member, desiredIds, managedIds, botMember) {
   // complete role list, which can overwrite another role update from this same sync.
   for (const id of add) await member.roles.add(id, 'Sincronización de roles WoW Whitebird');
   for (const id of remove) await member.roles.remove(id, 'Sincronización de roles WoW Whitebird');
+  return { added: add, removed: remove, changed: add.length > 0 || remove.length > 0 };
 }
 
 async function addMissingRoles(member, desiredIds, botMember) {
@@ -201,11 +202,13 @@ export async function synchronizeWowRoles(guild, linkedMembers) {
     const configuredRankRoleId = config.rankRoles[rankKey];
     const rankRoleId = configuredRankRoleId || config.defaultRankRoleId;
     try {
-      await reconcileRoles(member, new Set([rankRoleId]), rankRoleIds, botMember);
+      const changes = await reconcileRoles(member, new Set([rankRoleId]), rankRoleIds, botMember);
       report.ranksChecked += 1;
-      const roleName = guild.roles.cache.get(rankRoleId)?.name || rankRoleId;
-      if (!configuredRankRoleId) report.defaultRankApplied += 1;
-      report.rankDetails.push(`${character.name}: rango ${rankKey} → ${roleName}${configuredRankRoleId ? '' : ' (predeterminado)'}`);
+      if (changes.changed) {
+        const roleName = guild.roles.cache.get(rankRoleId)?.name || rankRoleId;
+        if (!configuredRankRoleId) report.defaultRankApplied += 1;
+        report.rankDetails.push(`${character.name}: rango ${rankKey} → ${roleName}${configuredRankRoleId ? '' : ' (predeterminado)'}`);
+      }
     } catch (error) {
       report.failed.push(`${character.name}: rango ${rankKey} sin actualizar (${error.message})`);
     }
