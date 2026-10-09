@@ -6,10 +6,11 @@ Bot de Discord independiente para vincular mains del roster de la guild en Blizz
 
 1. Cada miembro ejecuta `/wow-vincular-auto`. El bot compara su apodo y nombres de Discord con los personajes del roster de la guild publicado por Blizzard.
 2. Si encuentra una coincidencia clara, pide confirmación. Si hay varias, la persona elige una y confirma. No guarda nada antes de la confirmación.
-3. Si el nombre no coincide, un oficial puede usar `/wow-vincular usuario:@miembro personaje:Nombre reino:Reino`.
-4. Un oficial ejecuta `/syncwow` para sincronizar roles. También se puede activar una frecuencia automática.
-5. Los oficiales pueden ejecutar `/wow-desvincular usuario:@miembro` para retirar el vínculo de una persona.
-6. Los oficiales consultan `/wow-vinculaciones` para ver los vínculos guardados, los personajes del roster con rango mapeado que aún no están vinculados y las propuestas automáticas pendientes de confirmación.
+3. Un oficial puede ejecutar `/wow-vincular-masivo` para probar coincidencias del roster con todos los miembros aún sin vincular. Solo guarda coincidencias con una puntuación alta y suficientemente separadas de la segunda opción; casos ambiguos o dudosos quedan intactos para revisión. No reemplaza vínculos existentes ni enlaza bots.
+4. Si el nombre no coincide, un oficial puede usar `/wow-vincular usuario:@miembro personaje:Nombre reino:Reino`.
+5. Un oficial ejecuta `/syncwow` para sincronizar roles. También se puede activar una frecuencia automática.
+6. Los oficiales pueden ejecutar `/wow-desvincular usuario:@miembro` para retirar el vínculo de una persona.
+7. Los oficiales consultan `/wow-vinculaciones` para ver los vínculos guardados, los personajes del roster con rango mapeado que aún no están vinculados y las propuestas automáticas pendientes de confirmación.
 
 Las vinculaciones se guardan en `data/whitebird-wow-roles.sqlite`. Blizzard valida que el personaje forma parte del roster y proporciona el rango; la API de perfil de Blizzard proporciona las profesiones. Los acentos cuentan como parte del nombre: `Agô` y `Agó` se consideran personajes distintos, también en la búsqueda automática. Al vincular manualmente, el nombre debe coincidir respetando sus acentos y el bot guarda la grafía exacta del roster de Blizzard. Si Blizzard no tiene profesiones disponibles, el bot conserva los roles de profesión que ya tuviera esa persona.
 
@@ -18,7 +19,7 @@ El bot de recruitment puede compartir este mismo archivo SQLite y guardar autom�
 ## Configuración
 
 1. Crea una aplicación de Discord y un bot en [Discord Developer Portal](https://discord.com/developers/applications). Copia el token y el Application ID.
-2. Invita el bot al servidor con los scopes `bot` y `applications.commands`, y permisos `View Channels`, `Send Messages` y `Manage Roles`. Coloca su rol por encima de todos los roles que sincronizará. No le concedas Administrador.
+2. Invita el bot al servidor con los scopes `bot` y `applications.commands`, y permisos `View Channels`, `Send Messages` y `Manage Roles`. Coloca su rol por encima de todos los roles que sincronizará. No le concedas Administrador. En **Developer Portal → Bot → Privileged Gateway Intents**, activa **Server Members Intent**; se usa para revisar los miembros del servidor en `/wow-vincular-masivo`.
 3. Crea una aplicación en el [portal de desarrolladores de Battle.net](https://develop.battle.net/access/) y copia el Client ID y Client Secret.
 4. Copia `.env.example` a `.env` y completa:
 
@@ -44,6 +45,8 @@ Los rangos son las posiciones numéricas del roster de Blizzard (0 es Guild Mast
 `WOW_SYNC_INTERVAL_MINUTES=0` mantiene la sincronización manual. Para sincronizar cada seis horas, usa `360`.
 
 Las propuestas pendientes de `/wow-vincular-auto` se guardan temporalmente en memoria, caducan a los cinco minutos y se muestran en `/wow-vinculaciones`. Si se reinicia el bot, esas propuestas desaparecen; los vínculos confirmados sí permanecen guardados en SQLite.
+
+`/wow-vincular-masivo` solo considera personajes y miembros que aún no estén vinculados. Usa coincidencias de nombre estrictas (≥90%) y exige una diferencia mínima frente a la siguiente alternativa. No usa coincidencias basadas únicamente en quitar acentos, ni modifica vínculos existentes. Revisa los resultados ambiguos y confirma manualmente los vínculos con `/wow-vincular`.
 
 
 ## Despliegue con Docker Compose

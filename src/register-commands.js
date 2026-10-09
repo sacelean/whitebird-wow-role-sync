@@ -11,6 +11,9 @@ const commands = [
     .setName('wow-vincular-auto')
     .setDescription('Busca tu main de WoW comparando tu nombre con el roster de Blizzard'),
   new SlashCommandBuilder()
+    .setName('wow-vincular-masivo')
+    .setDescription('Busca y vincula automáticamente coincidencias claras para miembros sin vincular (oficiales)'),
+  new SlashCommandBuilder()
     .setName('wow-vincular')
     .setDescription('Vincula un usuario de Discord con su personaje main (oficiales)')
     .addUserOption((option) => option.setName('usuario').setDescription('Miembro de Discord').setRequired(true))

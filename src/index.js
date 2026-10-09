@@ -26,7 +26,7 @@ const guildId = process.env.DISCORD_GUILD_ID;
 if (!token || !guildId) throw new Error('Configura DISCORD_TOKEN y DISCORD_GUILD_ID en .env.');
 
 const officerRoleIds = new Set((process.env.OFFICER_ROLE_IDS || '').split(',').map((id) => id.trim()).filter(Boolean));
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
 const pendingWowLinks = new Map();
 
 function isOfficer(interaction) {
@@ -186,6 +186,100 @@ function splitReport(lines, maxLength = 1800) {
   return pages;
 }
 
+function autoLinkScore(rosterCharacter, member) {
+  const normalize = (value) => String(value || '').normalize('NFC').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+  const normalizeIgnoringAccents = (value) => String(value || '').normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+  const aliases = [member.displayName, member.user.globalName, member.user.username].map(normalize).filter(Boolean);
+  const character = normalize(rosterCharacter.name);
+  const realm = normalize(rosterCharacter.realm);
+  return Math.max(0, ...aliases.flatMap((alias) => [character, `${character}${realm}`].map((candidate) => {
+    if (alias === candidate) return 1;
+    if (normalizeIgnoringAccents(alias) === normalizeIgnoringAccents(candidate)) return 0;
+    const left = [...alias];
+    const right = [...candidate];
+    const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+    for (let row = 1; row <= left.length; row += 1) {
+      let diagonal = previous[0];
+      previous[0] = row;
+      for (let column = 1; column <= right.length; column += 1) {
+        const old = previous[column];
+        previous[column] = Math.min(previous[column] + 1, previous[column - 1] + 1, diagonal + (left[row - 1] === right[column - 1] ? 0 : 1));
+        diagonal = old;
+      }
+    }
+    return 1 - previous[right.length] / Math.max(left.length, right.length);
+  })));
+}
+
+async function bulkAutoLink(interaction) {
+  if (!isOfficer(interaction)) return interaction.reply(unauthorizedReply());
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const [roster, fetchedMembers] = await Promise.all([
+    fetchGuildRoster(),
+    interaction.guild.members.fetch()
+  ]);
+  const existingLinks = getWowLinks(guildId);
+  const linkedUsers = new Set(existingLinks.map((link) => link.user_id));
+  const linkedCharacters = new Set(existingLinks.map((link) => `${link.character_name.toLocaleLowerCase()}@${link.realm_slug.toLocaleLowerCase()}`));
+  const characters = (roster.members || []).flatMap(({ character }) => {
+    const name = character?.name;
+    const realm = character?.realm?.slug;
+    if (!name || !realm || linkedCharacters.has(`${name.toLocaleLowerCase()}@${realm.toLocaleLowerCase()}`)) return [];
+    return [{ name, realm }];
+  });
+  const members = [...fetchedMembers.values()].filter((member) => !member.user.bot && !linkedUsers.has(member.id));
+  const options = members.map((member) => ({
+    member,
+    candidates: characters.map((character) => ({ character, score: autoLinkScore(character, member) }))
+      .sort((left, right) => right.score - left.score)
+  }));
+  const proposals = [];
+  const review = [];
+  const noMatchCount = options.filter(({ candidates: ranked }) => !ranked[0] || ranked[0].score < 0.90).length;
+  for (const option of options) {
+    const [best, second] = option.candidates;
+    if (!best || best.score < 0.90) continue;
+    if (second && best.score - second.score < 0.10) {
+      review.push(`${option.member.displayName} — varias coincidencias (${best.character.name}, ${second.character.name})`);
+      continue;
+    }
+    proposals.push({ ...option, character: best.character, score: best.score });
+  }
+  const byCharacter = new Map();
+  for (const proposal of proposals) {
+    const key = `${proposal.character.name.toLocaleLowerCase()}@${proposal.character.realm.toLocaleLowerCase()}`;
+    byCharacter.set(key, [...(byCharacter.get(key) || []), proposal]);
+  }
+  const accepted = [];
+  for (const matches of byCharacter.values()) {
+    matches.sort((left, right) => right.score - left.score);
+    if (matches.length > 1 && matches[0].score - matches[1].score < 0.10) {
+      review.push(`${matches[0].character.name} — posible coincidencia con varios miembros`);
+      continue;
+    }
+    accepted.push(matches[0]);
+  }
+  let saved = 0;
+  const failed = [];
+  for (const match of accepted) {
+    try {
+      saveWowLink(guildId, match.member.id, match.character.name, match.character.realm);
+      saved += 1;
+    } catch {
+      failed.push(`${match.member.displayName} → ${match.character.name}`);
+    }
+  }
+  const lines = [
+    `Vinculación masiva terminada: **${saved}** vinculados automáticamente.`,
+    `Sin coincidencia clara: **${noMatchCount}** · Para revisar: **${review.length}** · Errores: **${failed.length}**.`
+  ];
+  if (saved) lines.push('', '**Vinculados**', ...accepted.slice(0, 12).map((match) => `• <@${match.member.id}> → **${match.character.name}** · ${match.character.realm}`));
+  if (review.length) lines.push('', '**Revisar manualmente**', ...review.slice(0, 8).map((line) => `• ${line}`));
+  if (failed.length) lines.push('', '**No guardados**', ...failed.slice(0, 8).map((line) => `• ${line}`));
+  if (saved > 12 || review.length > 8 || failed.length > 8) lines.push('', '_La respuesta muestra una selección de resultados; ejecuta `/wow-vinculaciones` para consultar el estado completo._');
+  return interaction.editReply({ content: lines.join('\n').slice(0, 1950), allowedMentions: { parse: [] } });
+}
+
 client.once(Events.ClientReady, (readyClient) => {
   console.log(`Whitebird WoW Role Sync conectado como ${readyClient.user.tag}`);
   const intervalMinutes = Number.parseInt(process.env.WOW_SYNC_INTERVAL_MINUTES || '0', 10);
@@ -218,6 +312,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     if (interaction.commandName === 'wow-vincular-auto') return await autoLink(interaction);
+    if (interaction.commandName === 'wow-vincular-masivo') return await bulkAutoLink(interaction);
 
     if (interaction.commandName === 'wow-vincular') {
       if (!isOfficer(interaction)) return interaction.reply(unauthorizedReply());
