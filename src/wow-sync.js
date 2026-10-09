@@ -137,8 +137,10 @@ async function reconcileRoles(member, desiredIds, managedIds, botMember) {
     if (desiredIds.has(id) && !hasRole) add.push(id);
     if (!desiredIds.has(id) && hasRole) remove.push(id);
   }
-  if (add.length) await member.roles.add(add, 'Sincronización de roles WoW Whitebird');
-  if (remove.length) await member.roles.remove(remove, 'Sincronización de roles WoW Whitebird');
+  // Apply roles one at a time. Passing an array makes discord.js replace the member's
+  // complete role list, which can overwrite another role update from this same sync.
+  for (const id of add) await member.roles.add(id, 'Sincronización de roles WoW Whitebird');
+  for (const id of remove) await member.roles.remove(id, 'Sincronización de roles WoW Whitebird');
 }
 
 async function addMissingRoles(member, desiredIds, botMember) {
@@ -146,7 +148,7 @@ async function addMissingRoles(member, desiredIds, botMember) {
     const role = member.guild.roles.cache.get(id);
     return roleIsManageable(role, botMember) && !member.roles.cache.has(id);
   });
-  if (add.length) await member.roles.add(add, 'Profesión encontrada en un personaje vinculado de WoW');
+  for (const id of add) await member.roles.add(id, 'Profesión encontrada en un personaje vinculado de WoW');
 }
 
 export async function synchronizeWowRoles(guild, linkedMembers) {
