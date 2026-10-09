@@ -38,7 +38,7 @@ WOW_PROFESSION_ROLE_IDS={"Alchemy":"id_rol_alquimia","Blacksmithing":"id_rol_her
 WOW_SYNC_INTERVAL_MINUTES=0
 ```
 
-Los rangos son las posiciones numéricas del roster de Blizzard (0 es Guild Master). Las profesiones se configuran con sus nombres ingleses y requieren `WOW_LOCALE=en_US`. Sustituye los ejemplos por IDs de roles que ya existan en el servidor. El bot no crea, cambia de nombre ni elimina roles; solo añade y retira los IDs enumerados en los dos mapas. La vinculación automática solo busca entre miembros actuales del roster de la guild configurada.
+Los rangos son las posiciones numéricas del roster de Blizzard (0 es Guild Master). Las profesiones se configuran con sus nombres ingleses y requieren `WOW_LOCALE=en_US`. Sustituye los ejemplos por IDs de roles que ya existan en el servidor. El bot no crea, cambia de nombre ni elimina roles. Para los rangos, mantiene un único rol correspondiente al rango actual; los roles de profesión solo se añaden y nunca se retiran, porque pueden corresponder a profesiones de alters. La vinculación automática solo busca entre miembros actuales del roster de la guild configurada.
 
 `WOW_SYNC_INTERVAL_MINUTES=0` mantiene la sincronización manual. Para sincronizar cada seis horas, usa `360`.
 

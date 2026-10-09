@@ -138,6 +138,14 @@ async function reconcileRoles(member, desiredIds, managedIds, botMember) {
   if (remove.length) await member.roles.remove(remove, 'Sincronización de roles WoW Whitebird');
 }
 
+async function addMissingRoles(member, desiredIds, botMember) {
+  const add = [...desiredIds].filter((id) => {
+    const role = member.guild.roles.cache.get(id);
+    return roleIsManageable(role, botMember) && !member.roles.cache.has(id);
+  });
+  if (add.length) await member.roles.add(add, 'Profesión encontrada en un personaje vinculado de WoW');
+}
+
 export async function synchronizeWowRoles(guild, linkedMembers) {
   const config = getWowConfig();
   const roster = await fetchGuildRoster();
@@ -175,13 +183,21 @@ export async function synchronizeWowRoles(guild, linkedMembers) {
 
     try {
       const professions = await fetchCharacterProfessions(character.name, character.realm.slug, config.region);
-      const names = (professions.primaries || []).flatMap((entry) => entry.professions || []).map((entry) => normalize(entry.name));
+      if (!Array.isArray(professions.primaries)) {
+        throw new Error('Blizzard no devolvió una lista válida de profesiones principales; se conservan los roles actuales.');
+      }
+      const primaryProfessionNames = professions.primaries.map((entry) => entry.profession?.name);
+      if (primaryProfessionNames.some((name) => typeof name !== 'string' || !name.trim())) {
+        throw new Error('La respuesta de Blizzard contiene profesiones incompletas; se conservan los roles actuales.');
+      }
+      const names = primaryProfessionNames.map(normalize);
       const desiredProfessionIds = new Set(Object.entries(config.professionRoles)
         .filter(([name]) => names.includes(normalize(name)))
         .map(([, id]) => id));
-      await reconcileRoles(member, desiredProfessionIds, professionRoleIds, botMember);
+      // Profession roles may represent an alt, so sync only adds them and never removes them.
+      await addMissingRoles(member, desiredProfessionIds, botMember);
     } catch (error) {
-      // A missing or temporarily unavailable character profile must not strip existing profession roles.
+      // Missing or malformed profile data must not strip existing profession roles.
       report.skipped.push(`${character.name}: profesiones sin actualizar (${error.message})`);
     }
     report.synced += 1;
