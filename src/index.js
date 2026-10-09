@@ -240,8 +240,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const report = await runSync(interaction.guild);
-      const lines = [`Sincronización terminada: **${report.synced}** vinculaciones procesadas.`];
+      const lines = [
+        `Sincronización terminada: **${report.synced}** vinculaciones procesadas.`,
+        `Rangos comprobados: **${report.ranksChecked || 0}** · Rol por defecto aplicado: **${report.defaultRankApplied || 0}** · Profesiones comprobadas: **${report.professionsChecked || 0}**.`
+      ];
       if (report.skipped.length) lines.push(`Omitidas (${report.skipped.length}): ${report.skipped.slice(0, 8).join('; ')}`);
+      if (report.failed?.length) lines.push(`Errores (${report.failed.length}): ${report.failed.slice(0, 8).join('; ')}`);
       return interaction.editReply(lines.join('\n').slice(0, 1950));
     }
 

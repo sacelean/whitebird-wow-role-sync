@@ -33,12 +33,13 @@ WOW_REGION=eu
 WOW_LOCALE=en_US
 WOW_GUILD_REALM_SLUG=slug-del-reino
 WOW_GUILD_SLUG=slug-de-la-guild
+WOW_DEFAULT_RANK_ROLE_ID=1463652921898963147
 WOW_RANK_ROLE_IDS={"0":"id_rol_gm","1":"id_rol_oficial","2":"id_rol_raider"}
 WOW_PROFESSION_ROLE_IDS={"Alchemy":"id_rol_alquimia","Blacksmithing":"id_rol_herreria"}
 WOW_SYNC_INTERVAL_MINUTES=0
 ```
 
-Los rangos son las posiciones numéricas del roster de Blizzard (0 es Guild Master). Las profesiones se configuran con sus nombres ingleses y requieren `WOW_LOCALE=en_US`. Sustituye los ejemplos por IDs de roles que ya existan en el servidor. El bot no crea, cambia de nombre ni elimina roles. Para los rangos, mantiene un único rol correspondiente al rango actual; los roles de profesión solo se añaden y nunca se retiran, porque pueden corresponder a profesiones de alters. La vinculación automática solo busca entre miembros actuales del roster de la guild configurada.
+Los rangos son las posiciones numéricas del roster de Blizzard (0 es Guild Master). Si el rango actual no tiene entrada en `WOW_RANK_ROLE_IDS`, el bot quita los roles de rango configurados que tenga la persona y le asigna el rol por defecto `WOW_DEFAULT_RANK_ROLE_ID` (Viajante). Las profesiones se configuran con sus nombres ingleses y requieren `WOW_LOCALE=en_US`. Sustituye los ejemplos por IDs de roles que ya existan en el servidor. El bot no crea, cambia de nombre ni elimina roles. Para los rangos, mantiene un único rol correspondiente al rango actual; los roles de profesión solo se añaden y nunca se retiran, porque pueden corresponder a profesiones de alters. La vinculación automática solo busca entre miembros actuales del roster de la guild configurada.
 
 `WOW_SYNC_INTERVAL_MINUTES=0` mantiene la sincronización manual. Para sincronizar cada seis horas, usa `360`.
 

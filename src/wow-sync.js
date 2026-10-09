@@ -6,6 +6,7 @@ const clientId = process.env.BLIZZARD_CLIENT_ID;
 const clientSecret = process.env.BLIZZARD_CLIENT_SECRET;
 const realmSlug = (process.env.WOW_GUILD_REALM_SLUG || '').trim().toLowerCase();
 const guildSlug = (process.env.WOW_GUILD_SLUG || '').trim().toLowerCase();
+const defaultRankRoleId = (process.env.WOW_DEFAULT_RANK_ROLE_ID || '1463652921898963147').trim();
 
 function parseRoleMap(envName) {
   const raw = process.env[envName] || '{}';
@@ -25,13 +26,15 @@ export function getWowConfig() {
   if (!['us', 'eu', 'kr', 'tw'].includes(region)) throw new Error('WOW_REGION debe ser us, eu, kr o tw.');
   const rankRoles = parseRoleMap('WOW_RANK_ROLE_IDS');
   const professionRoles = parseRoleMap('WOW_PROFESSION_ROLE_IDS');
-  const ids = [...Object.values(rankRoles), ...Object.values(professionRoles)];
-  if (new Set(ids).size !== ids.length) throw new Error('Un mismo ID de rol no puede aparecer en ambos mapeos ni repetirse.');
+  if (!/^\d{15,22}$/.test(defaultRankRoleId)) throw new Error('WOW_DEFAULT_RANK_ROLE_ID no parece un ID de rol de Discord.');
+  const ids = [...Object.values(rankRoles), ...Object.values(professionRoles), defaultRankRoleId];
+  if (new Set(ids).size !== ids.length) throw new Error('Un mismo ID de rol no puede repetirse entre los rangos, profesiones y el rol por defecto.');
   return {
     region,
     locale,
     rankRoles,
-    professionRoles
+    professionRoles,
+    defaultRankRoleId
   };
 }
 
@@ -149,7 +152,7 @@ async function addMissingRoles(member, desiredIds, botMember) {
 export async function synchronizeWowRoles(guild, linkedMembers) {
   const config = getWowConfig();
   const roster = await fetchGuildRoster();
-  const rankRoleIds = new Set(Object.values(config.rankRoles));
+  const rankRoleIds = new Set([...Object.values(config.rankRoles), config.defaultRankRoleId]);
   const professionRoleIds = new Set(Object.values(config.professionRoles));
   const managedIds = new Set([...rankRoleIds, ...professionRoleIds]);
   const botMember = await guild.members.fetchMe();
@@ -159,7 +162,7 @@ export async function synchronizeWowRoles(guild, linkedMembers) {
       throw new Error(`El rol configurado ${id} no existe en el servidor o está fuera de la jerarquía que puede gestionar el bot. No se han aplicado cambios.`);
     }
   }
-  const report = { synced: 0, skipped: [], failed: [] };
+  const report = { synced: 0, ranksChecked: 0, defaultRankApplied: 0, professionsChecked: 0, skipped: [], failed: [] };
 
   for (const link of linkedMembers) {
     const rosterEntry = findRosterEntry(roster, link.character_name, link.realm_slug);
@@ -177,9 +180,15 @@ export async function synchronizeWowRoles(guild, linkedMembers) {
     }
 
     const rankKey = String(rosterEntry.rank);
-    const rankRoleId = config.rankRoles[rankKey];
-    const desiredRankIds = rankRoleId ? new Set([rankRoleId]) : null;
-    if (desiredRankIds) await reconcileRoles(member, desiredRankIds, rankRoleIds, botMember);
+    const configuredRankRoleId = config.rankRoles[rankKey];
+    const rankRoleId = configuredRankRoleId || config.defaultRankRoleId;
+    try {
+      await reconcileRoles(member, new Set([rankRoleId]), rankRoleIds, botMember);
+      report.ranksChecked += 1;
+      if (!configuredRankRoleId) report.defaultRankApplied += 1;
+    } catch (error) {
+      report.failed.push(`${character.name}: rango ${rankKey} sin actualizar (${error.message})`);
+    }
 
     try {
       const professions = await fetchCharacterProfessions(character.name, character.realm.slug, config.region);
@@ -196,6 +205,7 @@ export async function synchronizeWowRoles(guild, linkedMembers) {
         .map(([, id]) => id));
       // Profession roles may represent an alt, so sync only adds them and never removes them.
       await addMissingRoles(member, desiredProfessionIds, botMember);
+      report.professionsChecked += 1;
     } catch (error) {
       // Missing or malformed profile data must not strip existing profession roles.
       report.skipped.push(`${character.name}: profesiones sin actualizar (${error.message})`);
