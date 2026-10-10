@@ -174,11 +174,11 @@ async function buildLinkReport(guild) {
     }
     const currentRanks = member
       ? rankRoleEntries.filter(({ roleId }) => member.roles.cache.has(roleId))
-        .sort((left, right) => right.rank - left.rank)
+        .sort((left, right) => left.rank - right.rank)
       : [];
-    return { link, currentRanks, sortRank: currentRanks.length ? currentRanks[0].rank : -1 };
+    return { link, currentRanks, sortRank: currentRanks.length ? currentRanks[0].rank : highestConfiguredRank + 2 };
   }));
-  linkedWithCurrentRanks.sort((left, right) => right.sortRank - left.sortRank || left.link.character_name.localeCompare(right.link.character_name));
+  linkedWithCurrentRanks.sort((left, right) => left.sortRank - right.sortRank || left.link.character_name.localeCompare(right.link.character_name));
 
   const lines = [`**Vinculaciones guardadas (${linked.length})**`];
   lines.push(...(linked.length
@@ -189,7 +189,14 @@ async function buildLinkReport(guild) {
           return isDefault ? `${role ? `<@&${roleId}>` : 'Viajante'} (por defecto)` : `${role ? `<@&${roleId}>` : `rol no disponible`} (rango ${rank})`;
         }).join(', ')
         : 'sin rol de rango configurado';
-      return `• <@${link.user_id}> — **${link.character_name}** · ${link.realm_slug} — ${currentRoleText}${link.raider_channel_id ? ` — canal Raider: <#${link.raider_channel_id}>` : ' — sin canal Raider guardado'}`;
+      let raiderChannelText = `canal Raider: <#${link.raider_channel_id}>`;
+      if (!link.raider_channel_id) {
+        const expectedName = `raider-${cleanChannelName(link.character_name)}-${cleanChannelName(link.realm_slug)}`.slice(0, 100);
+        const channel = guild.channels.cache.find((candidate) => candidate.type === ChannelType.GuildText && candidate.name === expectedName);
+        const topic = `whitebird-raider:${guild.id}:${link.user_id}`;
+        raiderChannelText = `${channel ? `canal ${channel}` : `canal esperado #${expectedName}`} — tema para copiar: \`${topic}\``;
+      }
+      return `• <@${link.user_id}> — **${link.character_name}** · ${link.realm_slug} — ${currentRoleText} — ${raiderChannelText}`;
     })
     : ['• No hay vinculaciones guardadas.']));
   lines.push('', `**Roster con rango mapeado y sin vincular (${unlinkedMapped.length})**`);
@@ -220,6 +227,11 @@ function splitReport(lines, maxLength = 1800) {
   }
   if (page) pages.push(page);
   return pages;
+}
+
+function cleanChannelName(value) {
+  return String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80) || 'recluta';
 }
 
 function autoLinkScore(rosterCharacter, member) {
