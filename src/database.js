@@ -34,6 +34,19 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS wow_cauldron_setup (
     guild_id TEXT PRIMARY KEY
   );
+  CREATE TABLE IF NOT EXISTS wow_sync_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    character_name TEXT NOT NULL,
+    realm_slug TEXT NOT NULL,
+    category TEXT NOT NULL,
+    action TEXT NOT NULL,
+    role_id TEXT NOT NULL,
+    role_name TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_wow_sync_history_guild_id ON wow_sync_history(guild_id, id DESC);
 `);
 
 db.transaction(() => {
@@ -79,6 +92,37 @@ export function getCauldronPanel(guildId) {
 export function setCauldronPanel(guildId, channelId, messageId) {
   return db.prepare(`INSERT INTO wow_cauldron_panels (guild_id, channel_id, message_id) VALUES (?, ?, ?)
     ON CONFLICT(guild_id) DO UPDATE SET channel_id=excluded.channel_id, message_id=excluded.message_id`).run(guildId, channelId, messageId);
+}
+
+export function recordWowSyncChange(change) {
+  return db.prepare(`INSERT INTO wow_sync_history
+    (guild_id, user_id, character_name, realm_slug, category, action, role_id, role_name)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(change.guildId, change.userId, change.characterName, change.realmSlug, change.category, change.action, change.roleId, change.roleName);
+}
+
+export function recordWowSyncChanges(changes) {
+  if (!changes.length) return 0;
+  const insert = db.prepare(`INSERT INTO wow_sync_history
+    (guild_id, user_id, character_name, realm_slug, category, action, role_id, role_name)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
+  const record = db.transaction((items) => {
+    for (const item of items) {
+      insert.run(item.guildId, item.userId, item.characterName, item.realmSlug, item.category, item.action, item.roleId, item.roleName);
+    }
+    return items.length;
+  });
+  return record(changes);
+}
+
+export function getWowSyncHistory(guildId, userId = null, limit = 10) {
+  const safeLimit = Math.max(1, Math.min(25, Number.parseInt(limit, 10) || 10));
+  if (userId) {
+    return db.prepare(`SELECT user_id, character_name, realm_slug, category, action, role_name, created_at
+      FROM wow_sync_history WHERE guild_id = ? AND user_id = ? ORDER BY id DESC LIMIT ?`).all(guildId, userId, safeLimit);
+  }
+  return db.prepare(`SELECT user_id, character_name, realm_slug, category, action, role_name, created_at
+    FROM wow_sync_history WHERE guild_id = ? ORDER BY id DESC LIMIT ?`).all(guildId, safeLimit);
 }
 
 export function seedCauldronAssignments(guildId, assignments) {

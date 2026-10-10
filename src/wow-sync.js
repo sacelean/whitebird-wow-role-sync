@@ -1,7 +1,3 @@
-import 'dotenv/config';
-import { ChannelType } from 'discord.js';
-import { saveWowLink } from './database.js';
-
 const region = (process.env.WOW_REGION || '').trim().toLowerCase();
 const locale = (process.env.WOW_LOCALE || '').trim();
 const clientId = process.env.BLIZZARD_CLIENT_ID;
@@ -137,6 +133,8 @@ function roleIsManageable(role, botMember) {
   return Boolean(role && !role.managed && role.position < botMember.roles.highest.position);
 }
 
+const guildTextChannelType = 0;
+
 function cleanChannelName(value) {
   return String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
     .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80) || 'recluta';
@@ -154,19 +152,19 @@ function getChannelPrefix(member, guild, config) {
   return (roleId && guild.roles.cache.get(roleId)?.name) || 'raider';
 }
 
-async function renameRaiderChannel(guild, link, prefix, characterName, realmSlug) {
+async function renameRaiderChannel(guild, link, prefix, characterName, realmSlug, saveLink) {
   const expectedName = getRaiderChannelName(prefix, characterName, realmSlug);
   let channel = link.raider_channel_id ? guild.channels.cache.get(link.raider_channel_id) : null;
   if (!channel && link.raider_channel_id) channel = await guild.channels.fetch(link.raider_channel_id).catch(() => null);
-  if (channel?.type !== ChannelType.GuildText) channel = null;
+  if (channel?.type !== guildTextChannelType) channel = null;
   if (!channel) {
     const characterRealmSuffix = `-${cleanChannelName(characterName)}-${cleanChannelName(realmSlug)}`;
-    channel = guild.channels.cache.find((item) => item.type === ChannelType.GuildText && item.name.endsWith(characterRealmSuffix));
+    channel = guild.channels.cache.find((item) => item.type === guildTextChannelType && item.name.endsWith(characterRealmSuffix));
   }
   if (!channel) return null;
 
-  if (link.raider_channel_id !== channel.id || link.character_name !== characterName || link.realm_slug !== realmSlug) {
-    saveWowLink(guild.id, link.user_id, characterName, realmSlug, channel.id);
+  if (saveLink && (link.raider_channel_id !== channel.id || link.character_name !== characterName || link.realm_slug !== realmSlug)) {
+    saveLink(guild.id, link.user_id, characterName, realmSlug, channel.id);
   }
   if (channel.name !== expectedName) {
     const previousName = channel.name;
@@ -176,12 +174,12 @@ async function renameRaiderChannel(guild, link, prefix, characterName, realmSlug
   return { channel, previousName: null };
 }
 
-async function updateRaiderChannelName(guild, link, member, config, report, characterName, realmSlug) {
+async function updateRaiderChannelName(guild, link, member, config, report, characterName, realmSlug, saveLink) {
   let currentMember = member;
   try { currentMember = await guild.members.fetch({ user: member.id, force: true }); } catch { /* use the member already in cache */ }
   const prefix = getChannelPrefix(currentMember, guild, config);
   try {
-    const result = await renameRaiderChannel(guild, link, prefix, characterName, realmSlug);
+    const result = await renameRaiderChannel(guild, link, prefix, characterName, realmSlug, saveLink);
     if (result?.previousName) {
       report.channelsRenamed += 1;
       report.channelDetails.push(`${result.previousName} → ${result.channel.name}`);
@@ -193,7 +191,7 @@ async function updateRaiderChannelName(guild, link, member, config, report, char
   }
 }
 
-async function reconcileRoles(member, desiredIds, managedIds, botMember) {
+async function reconcileRoles(member, desiredIds, managedIds, botMember, onChange = () => {}) {
   const add = [];
   const remove = [];
   for (const id of managedIds) {
@@ -205,33 +203,142 @@ async function reconcileRoles(member, desiredIds, managedIds, botMember) {
   }
   // Apply roles one at a time. Passing an array makes discord.js replace the member's
   // complete role list, which can overwrite another role update from this same sync.
-  for (const id of add) await member.roles.add(id, 'Sincronización de roles WoW Whitebird');
-  for (const id of remove) await member.roles.remove(id, 'Sincronización de roles WoW Whitebird');
+  for (const id of add) {
+    await member.roles.add(id, 'Sincronización de roles WoW Whitebird');
+    onChange(id, 'added');
+  }
+  for (const id of remove) {
+    await member.roles.remove(id, 'Sincronización de roles WoW Whitebird');
+    onChange(id, 'removed');
+  }
   return { added: add, removed: remove, changed: add.length > 0 || remove.length > 0 };
 }
 
-async function addMissingRoles(member, desiredIds, botMember) {
+async function addMissingRoles(member, desiredIds, botMember, onChange = () => {}) {
   const add = [...desiredIds].filter((id) => {
     const role = member.guild.roles.cache.get(id);
     return roleIsManageable(role, botMember) && !member.roles.cache.has(id);
   });
-  for (const id of add) await member.roles.add(id, 'Profesión encontrada en un personaje vinculado de WoW');
+  for (const id of add) {
+    await member.roles.add(id, 'Profesión encontrada en un personaje vinculado de WoW');
+    onChange(id, 'added');
+  }
 }
 
-export async function synchronizeWowRoles(guild, linkedMembers) {
-  const config = getWowConfig();
-  const roster = await fetchGuildRoster();
-  const rankRoleIds = new Set([...Object.values(config.rankRoles), config.defaultRankRoleId]);
-  const professionRoleIds = new Set(Object.values(config.professionRoles));
-  const managedIds = new Set([...rankRoleIds, ...professionRoleIds]);
-  const botMember = await guild.members.fetchMe();
+function validateManagedRoles(guild, botMember, managedIds) {
   for (const id of managedIds) {
     const role = guild.roles.cache.get(id);
     if (!role || role.managed || role.position >= botMember.roles.highest.position) {
       throw new Error(`El rol configurado ${id} no existe en el servidor o está fuera de la jerarquía que puede gestionar el bot. No se han aplicado cambios.`);
     }
   }
-  const report = { synced: 0, ranksChecked: 0, defaultRankApplied: 0, outsideRoster: 0, outsideRosterDefaultApplied: 0, rankDetails: [], channelsRenamed: 0, channelDetails: [], channelFailures: [], professionsChecked: 0, skipped: [], failed: [] };
+}
+
+function getManagedRoleSets(config) {
+  const rankIds = new Set([...Object.values(config.rankRoles), config.defaultRankRoleId]);
+  const professionIds = new Set(Object.values(config.professionRoles));
+  return { rankIds, professionIds, managedIds: new Set([...rankIds, ...professionIds]) };
+}
+
+export async function previewWowRoleSync(guild, linkedMembers) {
+  const config = getWowConfig();
+  const roster = await fetchGuildRoster();
+  const { rankIds, professionIds, managedIds } = getManagedRoleSets(config);
+  await guild.roles.fetch();
+  const botMember = await guild.members.fetchMe();
+  validateManagedRoles(guild, botMember, managedIds);
+  try { await guild.channels.fetch(); } catch { /* Channel preview will report missing channels below. */ }
+
+  const items = [];
+  for (const link of linkedMembers) {
+    const entry = findRosterEntry(roster, link.character_name, link.realm_slug);
+    let member;
+    try { member = await guild.members.fetch(link.user_id); } catch {
+      items.push({
+        character: `${link.character_name} · ${link.realm_slug}`,
+        userId: link.user_id,
+        status: entry ? 'sin miembro en Discord; no se pueden cambiar roles' : 'fuera del roster y sin miembro en Discord; no se pueden cambiar roles'
+      });
+      continue;
+    }
+
+    const displayName = entry?.character.name || link.character_name;
+    const currentRankIds = [...rankIds].filter((id) => member.roles.cache.has(id));
+    const targetRankId = entry ? config.rankRoles[String(entry.rank)] || config.defaultRankRoleId : config.defaultRankRoleId;
+    const roleChanges = [];
+    if (!member.roles.cache.has(targetRankId)) roleChanges.push(`añadir ${guild.roles.cache.get(targetRankId)?.name || targetRankId}`);
+    for (const id of currentRankIds) {
+      if (id !== targetRankId) roleChanges.push(`quitar ${guild.roles.cache.get(id)?.name || id}`);
+    }
+
+    let professionsWarning = null;
+    if (!entry) {
+      for (const id of professionIds) {
+        if (member.roles.cache.has(id)) roleChanges.push(`quitar ${guild.roles.cache.get(id)?.name || id}`);
+      }
+    } else {
+      try {
+        const professions = await fetchCharacterProfessions(entry.character.name, entry.character.realm.slug, config.region);
+        if (!Array.isArray(professions.primaries) || professions.primaries.some((item) => !item.profession?.name)) {
+          throw new Error('datos incompletos');
+        }
+        const names = professions.primaries.map((item) => normalize(item.profession.name));
+        for (const [profession, id] of Object.entries(config.professionRoles)) {
+          if (names.includes(normalize(profession)) && !member.roles.cache.has(id)) {
+            roleChanges.push(`añadir profesión ${guild.roles.cache.get(id)?.name || id}`);
+          }
+        }
+      } catch {
+        professionsWarning = 'profesiones sin verificar; conservará sus roles actuales';
+      }
+    }
+
+    const prefix = guild.roles.cache.get(targetRankId)?.name || 'raider';
+    const expectedChannel = getRaiderChannelName(prefix, displayName, entry?.character.realm.slug || link.realm_slug);
+    let channel = link.raider_channel_id ? guild.channels.cache.get(link.raider_channel_id) : null;
+    if (!channel && link.raider_channel_id) channel = await guild.channels.fetch(link.raider_channel_id).catch(() => null);
+    if (channel?.type !== guildTextChannelType) channel = null;
+    if (!channel) {
+      const suffix = `-${cleanChannelName(displayName)}-${cleanChannelName(entry?.character.realm.slug || link.realm_slug)}`;
+      channel = guild.channels.cache.find((candidate) => candidate.type === guildTextChannelType && candidate.name.endsWith(suffix));
+    }
+    const channelChange = channel && channel.name !== expectedChannel ? `${channel.name} → ${expectedChannel}` : null;
+    items.push({
+      character: `${displayName} · ${entry?.character.realm.slug || link.realm_slug}`,
+      userId: link.user_id,
+      status: [entry ? `rango ${entry.rank}${config.rankRoles[String(entry.rank)] ? '' : ' sin mapear → Viajante'}` : 'fuera del roster → Viajante; retirar profesiones', professionsWarning].filter(Boolean).join('; '),
+      roleChanges,
+      channelChange
+    });
+  }
+  return items;
+}
+
+export async function synchronizeWowRoles(guild, linkedMembers, { saveLink, onRoleChange } = {}) {
+  const config = getWowConfig();
+  const roster = await fetchGuildRoster();
+  const { rankIds: rankRoleIds, professionIds: professionRoleIds, managedIds } = getManagedRoleSets(config);
+  const botMember = await guild.members.fetchMe();
+  validateManagedRoles(guild, botMember, managedIds);
+  const report = { synced: 0, ranksChecked: 0, defaultRankApplied: 0, outsideRoster: 0, outsideRosterDefaultApplied: 0, rankDetails: [], channelChanges: [], channelsRenamed: 0, channelDetails: [], channelFailures: [], professionsChecked: 0, skipped: [], failed: [], roleChanges: [] };
+
+  const roleChange = (link, characterName, realmSlug) => (roleId, action) => {
+    const role = guild.roles.cache.get(roleId);
+    const entry = {
+      guildId: guild.id,
+      userId: link.user_id,
+      characterName,
+      realmSlug,
+      roleId,
+      roleName: role?.name || roleId,
+      category: rankRoleIds.has(roleId) ? 'rango' : 'profesión',
+      action
+    };
+    report.roleChanges.push(entry);
+    try { onRoleChange?.(entry); } catch (error) {
+      report.failed.push(`${characterName}: no se pudo guardar el historial de roles (${error.message})`);
+    }
+  };
 
   try { await guild.channels.fetch(); } catch (error) {
     report.channelFailures.push(`No se pudieron consultar los canales de Raider (${error.message})`);
@@ -241,6 +348,7 @@ export async function synchronizeWowRoles(guild, linkedMembers) {
     const rosterEntry = findRosterEntry(roster, link.character_name, link.realm_slug);
     const characterName = rosterEntry?.character.name || link.character_name;
     const characterRealm = rosterEntry?.character.realm.slug || link.realm_slug;
+    if (!rosterEntry) report.outsideRoster += 1;
     let member;
     try {
       member = await guild.members.fetch(link.user_id);
@@ -250,9 +358,8 @@ export async function synchronizeWowRoles(guild, linkedMembers) {
     }
 
     if (!rosterEntry) {
-      report.outsideRoster += 1;
       try {
-        const changes = await reconcileRoles(member, new Set([config.defaultRankRoleId]), managedIds, botMember);
+        const changes = await reconcileRoles(member, new Set([config.defaultRankRoleId]), managedIds, botMember, roleChange(link, characterName, characterRealm));
         report.ranksChecked += 1;
         if (changes.changed) {
           report.defaultRankApplied += 1;
@@ -264,14 +371,16 @@ export async function synchronizeWowRoles(guild, linkedMembers) {
       } catch (error) {
         report.failed.push(`${link.character_name}: no se pudo asignar el rol por defecto al salir del roster (${error.message})`);
       }
-      await updateRaiderChannelName(guild, link, member, config, report, characterName, characterRealm);
+      const channelChangesBefore = report.channelsRenamed;
+      await updateRaiderChannelName(guild, link, member, config, report, characterName, characterRealm, saveLink);
+      if (report.channelsRenamed > channelChangesBefore) report.channelChanges.push(report.channelDetails.at(-1));
       continue;
     }
 
     const character = rosterEntry.character;
     if (link.character_name !== character.name || link.realm_slug !== character.realm.slug) {
       try {
-        saveWowLink(guild.id, link.user_id, character.name, character.realm.slug);
+      saveLink?.(guild.id, link.user_id, character.name, character.realm.slug);
       } catch (error) {
         report.failed.push(`${character.name}: no se pudo normalizar el nombre guardado (${error.message})`);
       }
@@ -281,7 +390,7 @@ export async function synchronizeWowRoles(guild, linkedMembers) {
     const configuredRankRoleId = config.rankRoles[rankKey];
     const rankRoleId = configuredRankRoleId || config.defaultRankRoleId;
     try {
-      const changes = await reconcileRoles(member, new Set([rankRoleId]), rankRoleIds, botMember);
+      const changes = await reconcileRoles(member, new Set([rankRoleId]), rankRoleIds, botMember, roleChange(link, character.name, character.realm.slug));
       report.ranksChecked += 1;
       if (changes.changed) {
         const roleName = guild.roles.cache.get(rankRoleId)?.name || rankRoleId;
@@ -292,7 +401,9 @@ export async function synchronizeWowRoles(guild, linkedMembers) {
       report.failed.push(`${character.name}: rango ${rankKey} sin actualizar (${error.message})`);
     }
 
-    await updateRaiderChannelName(guild, link, member, config, report, character.name, character.realm.slug);
+    const channelChangesBefore = report.channelsRenamed;
+    await updateRaiderChannelName(guild, link, member, config, report, character.name, character.realm.slug, saveLink);
+    if (report.channelsRenamed > channelChangesBefore) report.channelChanges.push(report.channelDetails.at(-1));
 
     try {
       const professions = await fetchCharacterProfessions(character.name, character.realm.slug, config.region);
@@ -308,7 +419,7 @@ export async function synchronizeWowRoles(guild, linkedMembers) {
         .filter(([name]) => names.includes(normalize(name)))
         .map(([, id]) => id));
       // Profession roles may represent an alt, so sync only adds them and never removes them.
-      await addMissingRoles(member, desiredProfessionIds, botMember);
+      await addMissingRoles(member, desiredProfessionIds, botMember, roleChange(link, character.name, character.realm.slug));
       report.professionsChecked += 1;
     } catch (error) {
       // Missing or malformed profile data must not strip existing profession roles.
