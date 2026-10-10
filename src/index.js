@@ -254,8 +254,13 @@ async function updateCauldronPanel(guild) {
   const content = renderCauldronSchedule(guild.id);
   let message = await channel.messages.fetch(panel.message_id).catch(() => null);
   if (message) {
-    await message.edit({ content, allowedMentions: { parse: [] } });
-    return true;
+    try {
+      await message.edit({ content, allowedMentions: { parse: [] } });
+      return true;
+    } catch (error) {
+      // Discord.js can return a deleted message from cache; recover from the stale saved ID.
+      if (error.code !== 10008) throw error;
+    }
   }
   message = await channel.send({ content, allowedMentions: { parse: [] } });
   setCauldronPanel(guild.id, channel.id, message.id);
