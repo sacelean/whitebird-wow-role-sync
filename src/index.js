@@ -4,6 +4,7 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  ChannelType,
   Client,
   Events,
   GatewayIntentBits,
@@ -140,10 +141,19 @@ async function runSync(guild) {
   return synchronizeWowRoles(guild, linked);
 }
 
-async function buildLinkReport(targetGuildId) {
-  const linked = getWowLinks(targetGuildId);
+async function buildLinkReport(guild) {
+  let linked = getWowLinks(guild.id);
+  await guild.channels.fetch();
+  for (const link of linked) {
+    if (link.raider_channel_id) continue;
+    const raiderTopic = `whitebird-raider:${guild.id}:${link.user_id}`;
+    const raiderChannel = guild.channels.cache.find((channel) => channel.type === ChannelType.GuildText && channel.topic === raiderTopic);
+    if (!raiderChannel) continue;
+    saveWowLink(guild.id, link.user_id, link.character_name, link.realm_slug, raiderChannel.id);
+  }
+  linked = getWowLinks(guild.id);
   const pending = [...pendingWowLinks.entries()]
-    .filter(([, item]) => item.guildId === targetGuildId && item.expiresAt > Date.now());
+    .filter(([, item]) => item.guildId === guild.id && item.expiresAt > Date.now());
   for (const [nonce, item] of pendingWowLinks) {
     if (item.expiresAt <= Date.now()) pendingWowLinks.delete(nonce);
   }
@@ -152,9 +162,35 @@ async function buildLinkReport(targetGuildId) {
   const roster = await fetchGuildRoster();
   const unlinkedMapped = getUnlinkedMappedRosterMembers(roster, linked, config.rankRoles);
 
+  await guild.roles.fetch();
+  const rankRoleEntries = Object.entries(config.rankRoles)
+    .map(([rank, roleId]) => ({ rank: Number(rank), roleId, default: false }));
+  const highestConfiguredRank = Math.max(-1, ...rankRoleEntries.map(({ rank }) => rank));
+  rankRoleEntries.push({ rank: highestConfiguredRank + 1, roleId: config.defaultRankRoleId, default: true });
+  const linkedWithCurrentRanks = await Promise.all(linked.map(async (link) => {
+    let member = guild.members.cache.get(link.user_id);
+    if (!member) {
+      try { member = await guild.members.fetch(link.user_id); } catch { member = null; }
+    }
+    const currentRanks = member
+      ? rankRoleEntries.filter(({ roleId }) => member.roles.cache.has(roleId))
+        .sort((left, right) => right.rank - left.rank)
+      : [];
+    return { link, currentRanks, sortRank: currentRanks.length ? currentRanks[0].rank : -1 };
+  }));
+  linkedWithCurrentRanks.sort((left, right) => right.sortRank - left.sortRank || left.link.character_name.localeCompare(right.link.character_name));
+
   const lines = [`**Vinculaciones guardadas (${linked.length})**`];
   lines.push(...(linked.length
-    ? linked.map((link) => `• <@${link.user_id}> — **${link.character_name}** · ${link.realm_slug}`)
+    ? linkedWithCurrentRanks.map(({ link, currentRanks }) => {
+      const currentRoleText = currentRanks.length
+        ? currentRanks.map(({ rank, roleId, default: isDefault }) => {
+          const role = guild.roles.cache.get(roleId);
+          return isDefault ? `${role ? `<@&${roleId}>` : 'Viajante'} (por defecto)` : `${role ? `<@&${roleId}>` : `rol no disponible`} (rango ${rank})`;
+        }).join(', ')
+        : 'sin rol de rango configurado';
+      return `• <@${link.user_id}> — **${link.character_name}** · ${link.realm_slug} — ${currentRoleText}${link.raider_channel_id ? ` — canal Raider: <#${link.raider_channel_id}>` : ' — sin canal Raider guardado'}`;
+    })
     : ['• No hay vinculaciones guardadas.']));
   lines.push('', `**Roster con rango mapeado y sin vincular (${unlinkedMapped.length})**`);
   lines.push(...(unlinkedMapped.length
@@ -358,7 +394,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.commandName === 'wow-vinculaciones') {
       if (!isOfficer(interaction)) return interaction.reply(unauthorizedReply());
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-      const pages = splitReport(await buildLinkReport(guildId));
+      const pages = splitReport(await buildLinkReport(interaction.guild));
       await interaction.editReply({ content: pages[0], allowedMentions: { parse: [] } });
       for (const page of pages.slice(1)) {
         await interaction.followUp({ content: page, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
