@@ -226,10 +226,17 @@ function splitReport(lines, maxLength = 1950) {
   return pages;
 }
 
+function getAlchemyRoleId() {
+  const alchemyRoleId = getWowConfig().professionRoles.Alchemy;
+  if (!alchemyRoleId) throw new Error('Configura el rol de Alquimista como "Alchemy" en WOW_PROFESSION_ROLE_IDS para mencionarlo en el reparto.');
+  return alchemyRoleId;
+}
+
 function renderCauldronSchedule(guildId) {
   const assignments = getCauldronAssignments(guildId);
   const byDay = new Map(assignments.map((item) => [`${item.weekday}:${item.cauldron_type}`, item.character_name]));
-  const lines = ['📦 **REPARTO DE CALDEROS** 📦', '**@Alquimista**'];
+  const alchemyRoleId = getAlchemyRoleId();
+  const lines = ['📦 **REPARTO DE CALDEROS** 📦', `<@&${alchemyRoleId}>`];
   for (const [key, label] of weekdays) {
     lines.push('', `🗓️ **${label}**`);
     lines.push(`🧪 Potis: ${byDay.get(`${key}:potis`) || 'Sin asignar'}`);
@@ -247,10 +254,10 @@ async function updateCauldronPanel(guild) {
   const content = renderCauldronSchedule(guild.id);
   let message = await channel.messages.fetch(panel.message_id).catch(() => null);
   if (message) {
-    await message.edit({ content, allowedMentions: { parse: [] } });
+    await message.edit({ content, allowedMentions: { parse: [], roles: [getAlchemyRoleId()] } });
     return true;
   }
-  message = await channel.send({ content, allowedMentions: { parse: [] } });
+  message = await channel.send({ content, allowedMentions: { parse: [], roles: [getAlchemyRoleId()] } });
   setCauldronPanel(guild.id, channel.id, message.id);
   return true;
 }
@@ -454,7 +461,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const updated = await updateCauldronPanel(interaction.guild);
         if (updated) return interaction.editReply(`El mensaje de reparto ya estaba en ${channel} y se ha actualizado.`);
       }
-      const message = await channel.send({ content: renderCauldronSchedule(guildId), allowedMentions: { parse: [] } });
+      const message = await channel.send({ content: renderCauldronSchedule(guildId), allowedMentions: { parse: [], roles: [getAlchemyRoleId()] } });
       setCauldronPanel(guildId, channel.id, message.id);
       return interaction.editReply(`He publicado el mensaje de reparto en ${channel}. Los cambios hechos con `/wow-caldero-asignar` actualizarán ese mensaje. Como el mensaje anterior lo escribió una persona, Discord no permite que el bot lo edite; podéis borrarlo manualmente.`);
     }

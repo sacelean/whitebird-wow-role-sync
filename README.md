@@ -48,6 +48,8 @@ La sincronización automática diaria se configura con `WOW_SYNC_HOUR` (hora de 
 
 El bot guarda las asignaciones semanales en SQLite. Al iniciar por primera vez, precarga las asignaciones indicadas en el reparto actual. Los oficiales pueden cambiar una asignación con `/wow-caldero-asignar dia tipo usuario`; el miembro seleccionado debe tener un main vinculado y un canal Raider asociado. El mensaje público muestra el nombre de ese main y se genera desde esos mismos datos.
 
+El encabezado menciona el rol de Alquimista configurado como `Alchemy` en `WOW_PROFESSION_ROLE_IDS`. El bot solo menciona ese rol existente; no crea ni modifica roles.
+
 Para publicar el mensaje inicial, ejecuta `/wow-calderos-panel canal:#canal-de-crafteos`. Después, cada cambio de asignación actualiza ese mensaje del bot. Discord no permite que el bot edite un mensaje escrito por una persona, así que la primera publicación crea un mensaje nuevo; el mensaje manual anterior se puede borrar.
 
 Cada día a la hora configurada, además de sincronizar roles, el bot envía recordatorios a los canales Raider de las personas asignadas ese día. Menciona únicamente a la persona correspondiente. Requiere que el bot pueda ver y enviar mensajes en el canal de crafteos y en los canales privados Raider.
