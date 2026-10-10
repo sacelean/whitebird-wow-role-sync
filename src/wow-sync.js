@@ -142,18 +142,29 @@ function cleanChannelName(value) {
     .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80) || 'recluta';
 }
 
-function getRaiderChannelName(characterName, realmSlug) {
-  return `raider-${cleanChannelName(characterName)}-${cleanChannelName(realmSlug)}`.slice(0, 100);
+function getRaiderChannelName(prefix, characterName, realmSlug) {
+  return `${cleanChannelName(prefix)}-${cleanChannelName(characterName)}-${cleanChannelName(realmSlug)}`.slice(0, 100);
 }
 
-async function renameRaiderChannel(guild, link, characterName, realmSlug) {
-  const expectedName = getRaiderChannelName(characterName, realmSlug);
+function getChannelPrefix(member, guild, config) {
+  const mappedRank = Object.entries(config.rankRoles)
+    .filter(([, roleId]) => member.roles.cache.has(roleId))
+    .sort(([leftRank], [rightRank]) => Number(leftRank) - Number(rightRank))[0];
+  const roleId = mappedRank?.[1] || (member.roles.cache.has(config.defaultRankRoleId) ? config.defaultRankRoleId : null);
+  return (roleId && guild.roles.cache.get(roleId)?.name) || 'raider';
+}
+
+async function renameRaiderChannel(guild, link, prefix, characterName, realmSlug) {
+  const expectedName = getRaiderChannelName(prefix, characterName, realmSlug);
   const expectedTopic = `whitebird-raider:${guild.id}:${link.user_id}`;
   let channel = link.raider_channel_id ? guild.channels.cache.get(link.raider_channel_id) : null;
   if (!channel && link.raider_channel_id) channel = await guild.channels.fetch(link.raider_channel_id).catch(() => null);
   if (channel?.type !== ChannelType.GuildText) channel = null;
   if (!channel) channel = guild.channels.cache.find((item) => item.type === ChannelType.GuildText && item.topic === expectedTopic);
-  if (!channel) channel = guild.channels.cache.find((item) => item.type === ChannelType.GuildText && item.name === expectedName);
+  if (!channel) {
+    const characterRealmSuffix = `-${cleanChannelName(characterName)}-${cleanChannelName(realmSlug)}`;
+    channel = guild.channels.cache.find((item) => item.type === ChannelType.GuildText && item.name.endsWith(characterRealmSuffix));
+  }
   if (!channel) return null;
 
   if (link.raider_channel_id !== channel.id || link.character_name !== characterName || link.realm_slug !== realmSlug) {
@@ -165,6 +176,23 @@ async function renameRaiderChannel(guild, link, characterName, realmSlug) {
     return { channel, previousName };
   }
   return { channel, previousName: null };
+}
+
+async function updateRaiderChannelName(guild, link, member, config, report, characterName, realmSlug) {
+  let currentMember = member;
+  try { currentMember = await guild.members.fetch({ user: member.id, force: true }); } catch { /* use the member already in cache */ }
+  const prefix = getChannelPrefix(currentMember, guild, config);
+  try {
+    const result = await renameRaiderChannel(guild, link, prefix, characterName, realmSlug);
+    if (result?.previousName) {
+      report.channelsRenamed += 1;
+      report.channelDetails.push(`${result.previousName} → ${result.channel.name}`);
+    } else if (!result) {
+      report.channelFailures.push(`${characterName}: no se encontró un canal Raider vinculado`);
+    }
+  } catch (error) {
+    report.channelFailures.push(`${getRaiderChannelName(prefix, characterName, realmSlug)}: ${error.message}`);
+  }
 }
 
 async function reconcileRoles(member, desiredIds, managedIds, botMember) {
@@ -215,17 +243,6 @@ export async function synchronizeWowRoles(guild, linkedMembers) {
     const rosterEntry = findRosterEntry(roster, link.character_name, link.realm_slug);
     const characterName = rosterEntry?.character.name || link.character_name;
     const characterRealm = rosterEntry?.character.realm.slug || link.realm_slug;
-    try {
-      const result = await renameRaiderChannel(guild, link, characterName, characterRealm);
-      if (result?.previousName) {
-        report.channelsRenamed += 1;
-        report.channelDetails.push(`${result.previousName} → ${result.channel.name}`);
-      } else if (!result) {
-        report.channelFailures.push(`${characterName}: no se encontró un canal Raider vinculado`);
-      }
-    } catch (error) {
-      report.channelFailures.push(`${getRaiderChannelName(characterName, characterRealm)}: ${error.message}`);
-    }
     let member;
     try {
       member = await guild.members.fetch(link.user_id);
@@ -249,6 +266,7 @@ export async function synchronizeWowRoles(guild, linkedMembers) {
       } catch (error) {
         report.failed.push(`${link.character_name}: no se pudo asignar el rol por defecto al salir del roster (${error.message})`);
       }
+      await updateRaiderChannelName(guild, link, member, config, report, characterName, characterRealm);
       continue;
     }
 
@@ -275,6 +293,8 @@ export async function synchronizeWowRoles(guild, linkedMembers) {
     } catch (error) {
       report.failed.push(`${character.name}: rango ${rankKey} sin actualizar (${error.message})`);
     }
+
+    await updateRaiderChannelName(guild, link, member, config, report, character.name, character.realm.slug);
 
     try {
       const professions = await fetchCharacterProfessions(character.name, character.realm.slug, config.region);
