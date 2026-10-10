@@ -19,7 +19,7 @@ El bot de recruitment puede compartir este mismo archivo SQLite y guardar autom�
 ## Configuración
 
 1. Crea una aplicación de Discord y un bot en [Discord Developer Portal](https://discord.com/developers/applications). Copia el token y el Application ID.
-2. Invita el bot al servidor con los scopes `bot` y `applications.commands`, y permisos `View Channels`, `Send Messages` y `Manage Roles`. Coloca su rol por encima de todos los roles que sincronizará. No le concedas Administrador. En **Developer Portal → Bot → Privileged Gateway Intents**, activa **Server Members Intent**; se usa para revisar los miembros del servidor en `/wow-vincular-masivo`.
+2. Invita el bot al servidor con los scopes `bot` y `applications.commands`, y permisos `View Channels`, `Send Messages`, `Manage Roles` y `Manage Channels`. Coloca su rol por encima de todos los roles que sincronizará y dale acceso a la categoría/canales privados de Raider para que pueda renombrarlos. No le concedas Administrador. En **Developer Portal → Bot → Privileged Gateway Intents**, activa **Server Members Intent**; se usa para revisar los miembros del servidor en `/wow-vincular-masivo`.
 3. Crea una aplicación en el [portal de desarrolladores de Battle.net](https://develop.battle.net/access/) y copia el Client ID y Client Secret.
 4. Copia `.env.example` a `.env` y completa:
 
@@ -40,9 +40,9 @@ WOW_PROFESSION_ROLE_IDS={"Alchemy":"id_rol_alquimia","Blacksmithing":"id_rol_her
 WOW_SYNC_INTERVAL_MINUTES=0
 ```
 
-Los rangos son las posiciones numéricas del roster de Blizzard (0 es Guild Master). Si el rango actual no tiene entrada en `WOW_RANK_ROLE_IDS`, el bot quita los roles de rango configurados que tenga la persona y le asigna el rol por defecto `WOW_DEFAULT_RANK_ROLE_ID` (Viajante). Las profesiones se configuran con sus nombres ingleses y requieren `WOW_LOCALE=en_US`. Sustituye los ejemplos por IDs de roles que ya existan en el servidor. El bot no crea, cambia de nombre ni elimina roles. Para los rangos, mantiene un único rol correspondiente al rango actual; los roles de profesión solo se añaden y nunca se retiran, porque pueden corresponder a profesiones de alters. La vinculación automática solo busca entre miembros actuales del roster de la guild configurada.
+Los rangos son las posiciones numéricas del roster de Blizzard (0 es Guild Master). Si el rango actual no tiene entrada en `WOW_RANK_ROLE_IDS`, el bot quita los roles de rango configurados que tenga la persona y le asigna el rol por defecto `WOW_DEFAULT_RANK_ROLE_ID` (Viajante). Si un personaje vinculado deja de aparecer en el roster, `/syncwow` le quita los roles de rango y profesión configurados y le asigna Viajante; conserva el vínculo guardado. Las profesiones se configuran con sus nombres ingleses y requieren `WOW_LOCALE=en_US`. Sustituye los ejemplos por IDs de roles que ya existan en el servidor. El bot no crea, cambia de nombre ni elimina roles. Para los rangos, mantiene un único rol correspondiente al rango actual; los roles de profesión solo se añaden y no se retiran mientras el personaje siga en el roster, porque pueden corresponder a profesiones de alters. La vinculación automática solo busca entre miembros actuales del roster de la guild configurada.
 
-`WOW_SYNC_INTERVAL_MINUTES=0` mantiene la sincronización manual. Para sincronizar cada seis horas, usa `360`.
+`WOW_SYNC_INTERVAL_MINUTES=0` mantiene la sincronización manual. Para sincronizar cada seis horas, usa `360`. `/syncwow` también mantiene el nombre del canal asociado en el formato `raider-nombre-reino`; requiere que el canal Raider esté asociado al vínculo y que el bot pueda verlo y gestionarlo. Los cambios y los fallos de permisos aparecen en el informe.
 
 Las propuestas pendientes de `/wow-vincular-auto` se guardan temporalmente en memoria, caducan a los cinco minutos y se muestran en `/wow-vinculaciones`. Si se reinicia el bot, esas propuestas desaparecen; los vínculos confirmados sí permanecen guardados en SQLite.
 

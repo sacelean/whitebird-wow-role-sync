@@ -395,9 +395,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const report = await runSync(interaction.guild);
       const lines = [
         `Sincronización terminada: **${report.synced}** vinculaciones procesadas.`,
-        `Rangos comprobados: **${report.ranksChecked || 0}** · Rol por defecto aplicado: **${report.defaultRankApplied || 0}** · Profesiones comprobadas: **${report.professionsChecked || 0}**.`
+        `Rangos comprobados: **${report.ranksChecked || 0}** · Rol por defecto aplicado: **${report.defaultRankApplied || 0}** · Profesiones comprobadas: **${report.professionsChecked || 0}**.`,
+        `Fuera del roster de Blizzard: **${report.outsideRoster || 0}** · Devueltos a Viajante: **${report.outsideRosterDefaultApplied || 0}**.`
       ];
       if (report.rankDetails?.length) lines.push(`Detalle de rangos: ${report.rankDetails.slice(0, 8).join('; ')}`);
+      lines.push(`Canales Raider renombrados: **${report.channelsRenamed || 0}**.`);
+      if (report.channelDetails?.length) lines.push(`Detalle de canales: ${report.channelDetails.slice(0, 8).join('; ')}`);
+      if (report.channelFailures?.length) lines.push(`Canales sin actualizar (${report.channelFailures.length}): ${report.channelFailures.slice(0, 5).join('; ')}`);
       if (report.skipped.length) lines.push(`Omitidas (${report.skipped.length}): ${report.skipped.slice(0, 8).join('; ')}`);
       if (report.failed?.length) lines.push(`Errores (${report.failed.length}): ${report.failed.slice(0, 8).join('; ')}`);
       return interaction.editReply(lines.join('\n').slice(0, 1950));
