@@ -156,11 +156,9 @@ function getChannelPrefix(member, guild, config) {
 
 async function renameRaiderChannel(guild, link, prefix, characterName, realmSlug) {
   const expectedName = getRaiderChannelName(prefix, characterName, realmSlug);
-  const expectedTopic = `whitebird-raider:${guild.id}:${link.user_id}`;
   let channel = link.raider_channel_id ? guild.channels.cache.get(link.raider_channel_id) : null;
   if (!channel && link.raider_channel_id) channel = await guild.channels.fetch(link.raider_channel_id).catch(() => null);
   if (channel?.type !== ChannelType.GuildText) channel = null;
-  if (!channel) channel = guild.channels.cache.find((item) => item.type === ChannelType.GuildText && item.topic === expectedTopic);
   if (!channel) {
     const characterRealmSuffix = `-${cleanChannelName(characterName)}-${cleanChannelName(realmSlug)}`;
     channel = guild.channels.cache.find((item) => item.type === ChannelType.GuildText && item.name.endsWith(characterRealmSuffix));
