@@ -254,10 +254,10 @@ async function updateCauldronPanel(guild) {
   const content = renderCauldronSchedule(guild.id);
   let message = await channel.messages.fetch(panel.message_id).catch(() => null);
   if (message) {
-    await message.edit({ content, allowedMentions: { parse: [], roles: [getAlchemyRoleId()] } });
+    await message.edit({ content, allowedMentions: { parse: [] } });
     return true;
   }
-  message = await channel.send({ content, allowedMentions: { parse: [], roles: [getAlchemyRoleId()] } });
+  message = await channel.send({ content, allowedMentions: { parse: [] } });
   setCauldronPanel(guild.id, channel.id, message.id);
   return true;
 }
@@ -461,7 +461,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const updated = await updateCauldronPanel(interaction.guild);
         if (updated) return interaction.editReply(`El mensaje de reparto ya estaba en ${channel} y se ha actualizado.`);
       }
-      const message = await channel.send({ content: renderCauldronSchedule(guildId), allowedMentions: { parse: [], roles: [getAlchemyRoleId()] } });
+      const message = await channel.send({ content: renderCauldronSchedule(guildId), allowedMentions: { parse: [] } });
       setCauldronPanel(guildId, channel.id, message.id);
       return interaction.editReply(`He publicado el mensaje de reparto en ${channel}. Los cambios hechos con `/wow-caldero-asignar` actualizarán ese mensaje. Como el mensaje anterior lo escribió una persona, Discord no permite que el bot lo edite; podéis borrarlo manualmente.`);
     }
