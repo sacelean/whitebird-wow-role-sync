@@ -11,7 +11,16 @@ import {
   PermissionFlagsBits,
   StringSelectMenuBuilder
 } from 'discord.js';
-import { getWowLinks, removeWowLink, saveWowLink } from './database.js';
+import {
+  getCauldronAssignments,
+  getCauldronPanel,
+  getWowLinks,
+  removeWowLink,
+  saveWowLink,
+  seedCauldronAssignments,
+  setCauldronAssignment,
+  setCauldronPanel
+} from './database.js';
 import {
   fetchGuildRoster,
   getUnlinkedMappedRosterMembers,
@@ -28,6 +37,10 @@ if (!token || !guildId) throw new Error('Configura DISCORD_TOKEN y DISCORD_GUILD
 const officerRoleIds = new Set((process.env.OFFICER_ROLE_IDS || '').split(',').map((id) => id.trim()).filter(Boolean));
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const pendingWowLinks = new Map();
+const weekdays = [
+  ['monday', 'Lunes'], ['tuesday', 'Martes'], ['wednesday', 'Miércoles'], ['thursday', 'Jueves']
+];
+const cauldronTypes = { potis: 'caldero de pociones', frascos: 'caldero de frascos' };
 
 function isOfficer(interaction) {
   if (interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) return true;
@@ -197,7 +210,7 @@ async function buildLinkReport(guild) {
   return lines;
 }
 
-function splitReport(lines, maxLength = 1800) {
+function splitReport(lines, maxLength = 1950) {
   const pages = [];
   let page = '';
   for (const line of lines) {
@@ -213,25 +226,131 @@ function splitReport(lines, maxLength = 1800) {
   return pages;
 }
 
-client.once(Events.ClientReady, (readyClient) => {
-  console.log(`Whitebird WoW Role Sync conectado como ${readyClient.user.tag}`);
-  const intervalMinutes = Number.parseInt(process.env.WOW_SYNC_INTERVAL_MINUTES || '0', 10);
-  if (intervalMinutes > 0) {
-    let syncing = false;
-    setInterval(async () => {
-      if (syncing) return;
-      syncing = true;
+function renderCauldronSchedule(guildId) {
+  const assignments = getCauldronAssignments(guildId);
+  const byDay = new Map(assignments.map((item) => [`${item.weekday}:${item.cauldron_type}`, item.character_name]));
+  const lines = ['📦 **REPARTO DE CALDEROS** 📦', '**@Alquimista**'];
+  for (const [key, label] of weekdays) {
+    lines.push('', `🗓️ **${label}**`);
+    lines.push(`🧪 Potis: ${byDay.get(`${key}:potis`) || 'Sin asignar'}`);
+    lines.push(`🧴 Frascos: ${byDay.get(`${key}:frascos`) || 'Sin asignar'}`);
+  }
+  lines.push('', '⚠️ Recordad tener los calderos preparados antes de la raid para evitar prisas de última hora. ¡Gracias por colaborar! 💜');
+  return lines.join('\n');
+}
+
+async function updateCauldronPanel(guild) {
+  const panel = getCauldronPanel(guild.id);
+  if (!panel) return false;
+  const channel = await guild.channels.fetch(panel.channel_id).catch(() => null);
+  if (!channel?.isTextBased()) return false;
+  const content = renderCauldronSchedule(guild.id);
+  let message = await channel.messages.fetch(panel.message_id).catch(() => null);
+  if (message) {
+    await message.edit({ content, allowedMentions: { parse: [] } });
+    return true;
+  }
+  message = await channel.send({ content, allowedMentions: { parse: [] } });
+  setCauldronPanel(guild.id, channel.id, message.id);
+  return true;
+}
+
+function comparableCharacterName(name) {
+  return String(name || '').normalize('NFC').toLocaleLowerCase('es-ES').replace(/\s+/g, '');
+}
+
+function findCauldronAssignee(guildId, characterName) {
+  const key = comparableCharacterName(characterName);
+  const matches = getWowLinks(guildId).filter((link) => comparableCharacterName(link.character_name) === key);
+  return matches.length === 1 && matches[0].raider_channel_id ? matches[0] : null;
+}
+
+async function sendDailyCauldronReminders(guild, timeZone) {
+  const today = new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'long' }).format(new Date()).toLowerCase();
+  const assignments = getCauldronAssignments(guild.id).filter((item) => item.weekday === today);
+  const byUser = new Map();
+  for (const assignment of assignments) {
+    const link = findCauldronAssignee(guild.id, assignment.character_name);
+    if (!link) {
+      console.warn(`Aviso de caldero omitido: ${assignment.character_name} no tiene un vínculo único con canal Raider.`);
+      continue;
+    }
+    const current = byUser.get(link.user_id) || { link, types: [] };
+    current.types.push(cauldronTypes[assignment.cauldron_type] || `caldero de ${assignment.cauldron_type}`);
+    byUser.set(link.user_id, current);
+  }
+  for (const { link, types } of byUser.values()) {
+    const channel = await guild.channels.fetch(link.raider_channel_id).catch(() => null);
+    if (!channel?.isTextBased()) {
+      console.warn(`Aviso de caldero omitido para ${link.character_name}: no se encontró su canal Raider.`);
+      continue;
+    }
+    const duty = types.join(' y ');
+    await channel.send({
+      content: `<@${link.user_id}> Hoy te toca llevar el ${duty}. Recuerda tenerlo preparado antes de la raid.`,
+      allowedMentions: { users: [link.user_id] }
+    });
+  }
+}
+
+function nextDailyRun(hour, timeZone) {
+  const formatter = new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23'
+  });
+  const now = Date.now();
+  const candidate = Math.floor(now / 60_000) * 60_000 + 60_000;
+  for (let minute = 0; minute < 48 * 60; minute += 1) {
+    const timestamp = candidate + minute * 60_000;
+    const parts = Object.fromEntries(formatter.formatToParts(timestamp).map(({ type, value }) => [type, value]));
+    if (Number(parts.hour) === hour && Number(parts.minute) === 0) return timestamp;
+  }
+  throw new Error(`No se encontró la próxima ejecución para la zona horaria ${timeZone}.`);
+}
+
+function scheduleDailySync(readyClient, hour, timeZone) {
+  const nextRun = nextDailyRun(hour, timeZone);
+  console.log(`Próxima sincronización WoW: ${new Date(nextRun).toLocaleString('es-ES', { timeZone })} (${timeZone}).`);
+  setTimeout(async () => {
+    try {
+      const guild = await readyClient.guilds.fetch(guildId);
       try {
-        const guild = await readyClient.guilds.fetch(guildId);
         const report = await runSync(guild);
         console.log(`Sync WoW ${guildId}: ${report.synced} vinculaciones procesadas; ${report.skipped.length} omitidas.`);
       } catch (error) {
         console.error('Falló la sincronización automática WoW:', error.message);
-      } finally {
-        syncing = false;
       }
-    }, intervalMinutes * 60_000);
-  }
+      try {
+        await sendDailyCauldronReminders(guild, timeZone);
+      } catch (error) {
+        console.error('Falló el envío de avisos de calderos:', error.message);
+      }
+    } catch (error) {
+      console.error('Falló la sincronización automática WoW:', error.message);
+    } finally {
+      scheduleDailySync(readyClient, hour, timeZone);
+    }
+  }, Math.max(0, nextRun - Date.now()));
+}
+
+client.once(Events.ClientReady, (readyClient) => {
+  console.log(`Whitebird WoW Role Sync conectado como ${readyClient.user.tag}`);
+  seedCauldronAssignments(guildId, [
+    { weekday: 'monday', type: 'potis', characterName: 'Asherrna' },
+    { weekday: 'monday', type: 'frascos', characterName: 'Yaihy' },
+    { weekday: 'tuesday', type: 'potis', characterName: 'Daphne' },
+    { weekday: 'tuesday', type: 'frascos', characterName: 'TheAngel' },
+    { weekday: 'wednesday', type: 'potis', characterName: 'Zness' },
+    { weekday: 'wednesday', type: 'frascos', characterName: 'Sacelean' },
+    { weekday: 'thursday', type: 'potis', characterName: 'Darkmur' },
+    { weekday: 'thursday', type: 'frascos', characterName: 'TheAngel' }
+  ]);
+  const hour = Number.parseInt(process.env.WOW_SYNC_HOUR || '4', 10);
+  const timeZone = process.env.WOW_SYNC_TIMEZONE || 'Europe/Madrid';
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23) throw new Error('WOW_SYNC_HOUR debe ser un número entre 0 y 23.');
+  scheduleDailySync(readyClient, hour, timeZone);
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
@@ -299,6 +418,45 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await interaction.followUp({ content: page, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
       }
       return;
+    }
+
+    if (interaction.commandName === 'wow-caldero-asignar') {
+      if (!isOfficer(interaction)) return interaction.reply(unauthorizedReply());
+      const weekday = interaction.options.getString('dia', true);
+      const type = interaction.options.getString('tipo', true);
+      const user = interaction.options.getUser('usuario', true);
+      const link = getWowLinks(guildId).find((item) => item.user_id === user.id && item.raider_channel_id);
+      if (!link) {
+        return interaction.reply({
+          content: `No encuentro una vinculación con canal Raider para ${user}. Comprueba que tenga su main vinculado y su canal asociado.`,
+          flags: MessageFlags.Ephemeral
+        });
+      }
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      setCauldronAssignment(guildId, weekday, type, link.character_name);
+      let panelUpdated = false;
+      try { panelUpdated = await updateCauldronPanel(interaction.guild); } catch (error) {
+        console.error('No se pudo actualizar el reparto público de calderos:', error.message);
+      }
+      const dayName = weekdays.find(([key]) => key === weekday)?.[1] || weekday;
+      const typeName = type === 'potis' ? 'potis' : 'frascos';
+      return interaction.editReply({
+        content: `Asignación guardada: **${dayName}**, caldero de **${typeName}** → **${link.character_name}**.${panelUpdated ? ' El mensaje del canal ya está actualizado.' : ' No hay panel configurado; un oficial debe ejecutar `/wow-calderos-panel` en el canal de crafteos.'}`,
+      });
+    }
+
+    if (interaction.commandName === 'wow-calderos-panel') {
+      if (!isOfficer(interaction)) return interaction.reply(unauthorizedReply());
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      const channel = interaction.options.getChannel('canal', true);
+      const existingPanel = getCauldronPanel(guildId);
+      if (existingPanel?.channel_id === channel.id) {
+        const updated = await updateCauldronPanel(interaction.guild);
+        if (updated) return interaction.editReply(`El mensaje de reparto ya estaba en ${channel} y se ha actualizado.`);
+      }
+      const message = await channel.send({ content: renderCauldronSchedule(guildId), allowedMentions: { parse: [] } });
+      setCauldronPanel(guildId, channel.id, message.id);
+      return interaction.editReply(`He publicado el mensaje de reparto en ${channel}. Los cambios hechos con `/wow-caldero-asignar` actualizarán ese mensaje. Como el mensaje anterior lo escribió una persona, Discord no permite que el bot lo edite; podéis borrarlo manualmente.`);
     }
 
   } catch (error) {
