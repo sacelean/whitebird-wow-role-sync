@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { updateLootPanel } from './loot-panel.js';
 import { startLootScheduler } from './loot-scheduler.js';
+import { startGearReminderScheduler } from './gear-reminders.js';
 import { getLootConfig, fetchLootReport, fetchRaiderTableReport, lootErrorMessage } from './wowaudit.js';
 import { randomUUID } from 'node:crypto';
 import {
@@ -485,6 +486,7 @@ client.once(Events.ClientReady, (readyClient) => {
   if (!Number.isInteger(hour) || hour < 0 || hour > 23) throw new Error('WOW_SYNC_HOUR debe ser un número entre 0 y 23.');
   scheduleDailySync(readyClient, hour, timeZone);
   startLootScheduler(readyClient, guildId);
+  startGearReminderScheduler(readyClient, guildId, getWowLinks);
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
