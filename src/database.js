@@ -138,3 +138,21 @@ export function seedCauldronAssignments(guildId, assignments) {
   });
   return seed.immediate();
 }
+
+// A sending claim survives restarts: ambiguous Discord deliveries need manual review.
+db.exec(`CREATE TABLE IF NOT EXISTS wowaudit_reports (
+  guild_id TEXT NOT NULL, channel_id TEXT NOT NULL, slot TEXT NOT NULL,
+  status TEXT NOT NULL, message_id TEXT,
+  PRIMARY KEY (guild_id, channel_id, slot)
+)`);
+export function claimLootReport(guildId, channelId, slot) {
+  return db.prepare('INSERT OR IGNORE INTO wowaudit_reports VALUES (?, ?, ?, ?, NULL)')
+    .run(guildId, channelId, slot, 'sending').changes === 1;
+}
+export function finishLootReport(guildId, channelId, slot, messageId) {
+  db.prepare("UPDATE wowaudit_reports SET status='sent', message_id=? WHERE guild_id=? AND channel_id=? AND slot=?")
+    .run(messageId, guildId, channelId, slot);
+}
+export function hasLootReport(guildId, channelId, slot) {
+  return Boolean(db.prepare('SELECT 1 FROM wowaudit_reports WHERE guild_id=? AND channel_id=? AND slot=?').get(guildId, channelId, slot));
+}

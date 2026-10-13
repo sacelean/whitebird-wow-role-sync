@@ -9,6 +9,9 @@ process.env.DATABASE_PATH = join(testDirectory, 'test.sqlite');
 
 const {
   db,
+  claimLootReport,
+  finishLootReport,
+  hasLootReport,
   getCauldronAssignments,
   getCauldronPanel,
   getWowLinks,
@@ -53,4 +56,16 @@ test('guarda cambios de roles en el historial y filtra por usuario', () => {
   assert.deepEqual(getWowSyncHistory('g1', 'u1', 5).map(({ character_name, role_name }) => ({ character_name, role_name })), [
     { character_name: 'Main', role_name: 'Raider' }
   ]);
+});
+
+
+test('claims persist and isolate weeks/channels, including uncertain sends', () => {
+  assert.equal(hasLootReport('g1', 'c1', '2026-10-14'), false);
+  assert.equal(claimLootReport('g1', 'c1', '2026-10-14'), true);
+  assert.equal(claimLootReport('g1', 'c1', '2026-10-14'), false);
+  assert.equal(hasLootReport('g1', 'c1', '2026-10-14'), true);
+  finishLootReport('g1', 'c1', '2026-10-14', 'm1');
+  assert.deepEqual(db.prepare('SELECT status, message_id FROM wowaudit_reports').get(), {status:'sent', message_id:'m1'});
+  assert.equal(claimLootReport('g1', 'c2', '2026-10-14'), true);
+  assert.equal(claimLootReport('g1', 'c1', '2026-10-21'), true);
 });

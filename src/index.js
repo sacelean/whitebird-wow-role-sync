@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { startLootScheduler } from './loot-scheduler.js';
 import { randomUUID } from 'node:crypto';
 import {
   ActionRowBuilder,
@@ -477,6 +478,7 @@ client.once(Events.ClientReady, (readyClient) => {
   const timeZone = process.env.WOW_SYNC_TIMEZONE || 'Europe/Madrid';
   if (!Number.isInteger(hour) || hour < 0 || hour > 23) throw new Error('WOW_SYNC_HOUR debe ser un número entre 0 y 23.');
   scheduleDailySync(readyClient, hour, timeZone);
+  startLootScheduler(readyClient, guildId);
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
