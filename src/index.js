@@ -16,6 +16,8 @@ import {
 } from 'discord.js';
 import {
   lootPanelStore,
+  getLootDestination,
+  setLootDestination,
   getCauldronAssignments,
   getCauldronPanel,
   getWowLinks,
@@ -500,10 +502,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       try {
         const config = getLootConfig();
-        if (!config) return interaction.editReply('WoWAudit está desactivado. Configura WOWAUDIT_API_KEY y WOWAUDIT_LOOT_CHANNEL_ID en el servidor.');
+        if (!config) return interaction.editReply('WoWAudit está desactivado. Configura WOWAUDIT_API_KEY en el servidor.');
+        const publishing = interaction.commandName === 'wow-loot-actualizar';
+        const selectedChannel = publishing ? interaction.options.getChannel('canal') : null;
+        const channelId = selectedChannel?.id || getLootDestination(guildId) || config.channelId;
+        if (publishing && !channelId) return interaction.editReply('Elige el destino con `/wow-loot-actualizar canal:#tu-canal`. Se guardará para las siguientes actualizaciones.');
         const report = await fetchLootReport(config, getWowLinks(guildId), Date.now());
-        if (interaction.commandName === 'wow-loot-actualizar') {
-          const panel = await updateLootPanel(interaction.guild, config, report, lootPanelStore);
+        if (publishing) {
+          const panel = await updateLootPanel(interaction.guild, { ...config, channelId }, report, lootPanelStore);
+          setLootDestination(guildId, panel.channelId);
           return interaction.editReply({ content: `Informe actualizado: https://discord.com/channels/${guildId}/${panel.channelId}/${panel.messageId}`, allowedMentions: { parse: [] } });
         }
         return interaction.editReply({ ...report, embeds: report.embeds.map(embed => ({ ...embed, title: 'Vista previa — roster completo (hasta ahora)' })) });

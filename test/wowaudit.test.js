@@ -146,9 +146,10 @@ test('report renders all 23 rows in one message with Discord embed limits and no
  assert.ok(report.embeds[0].fields.every(f=>f.value.length<=1024));
  assert.deepEqual(report.allowedMentions,{parse:[]});
 });
-test('WoWAudit requires an explicit channel ID and has no name fallback',()=>{
- assert.throws(()=>getLootConfig({WOWAUDIT_API_KEY:'test'}),/WOWAUDIT_LOOT_CHANNEL_ID/);
- assert.throws(()=>getLootConfig({WOWAUDIT_API_KEY:'test',WOWAUDIT_LOOT_CHANNEL_NAME:'some-channel'}),/WOWAUDIT_LOOT_CHANNEL_ID/);
+test('WoWAudit allows selecting the destination by command and optional env fallback',()=>{
+ assert.equal(getLootConfig({WOWAUDIT_API_KEY:'test'}).channelId,null);
+ assert.equal(getLootConfig({WOWAUDIT_API_KEY:'test',WOWAUDIT_LOOT_CHANNEL_NAME:'ignored'}).channelId,null);
+ assert.throws(()=>getLootConfig({WOWAUDIT_API_KEY:'test',WOWAUDIT_LOOT_CHANNEL_ID:'invalid'}),/WOWAUDIT_LOOT_CHANNEL_ID/);
  const config=getLootConfig({WOWAUDIT_API_KEY:'test',WOWAUDIT_LOOT_CHANNEL_ID:'123456789012345678'});
  assert.equal(config.channelId,'123456789012345678'); assert.equal(config.channelName,undefined);
 });

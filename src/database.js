@@ -188,3 +188,15 @@ export function saveLootPanel(guildId, channelId, messageId, slot = null) {
     .run(guildId, channelId, messageId, slot);
 }
 export const lootPanelStore = { get: getLootPanel, claim: claimLootPanel, save: saveLootPanel };
+
+
+db.exec(`CREATE TABLE IF NOT EXISTS wowaudit_loot_destinations (
+  guild_id TEXT PRIMARY KEY, channel_id TEXT NOT NULL
+)`);
+export function getLootDestination(guildId) {
+  return db.prepare('SELECT channel_id FROM wowaudit_loot_destinations WHERE guild_id=?').get(guildId)?.channel_id || null;
+}
+export function setLootDestination(guildId, channelId) {
+  db.prepare(`INSERT INTO wowaudit_loot_destinations VALUES (?, ?)
+    ON CONFLICT(guild_id) DO UPDATE SET channel_id=excluded.channel_id`).run(guildId, channelId);
+}

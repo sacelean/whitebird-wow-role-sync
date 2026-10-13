@@ -4,7 +4,7 @@ class LootPanelError extends Error {
 const activeUpdates = new Set();
 
 export async function resolveLootChannel(guild, config) {
-  if (!config.channelId) throw new LootPanelError('Configura WOWAUDIT_LOOT_CHANNEL_ID.');
+  if (!config.channelId) throw new LootPanelError('Elige el destino con /wow-loot-actualizar canal:#tu-canal.');
   const channel = await guild.channels.fetch(config.channelId);
   if (!channel?.isTextBased() || typeof channel.send !== 'function' || !channel.messages) throw new LootPanelError('Canal WoWAudit no disponible.');
   return channel;

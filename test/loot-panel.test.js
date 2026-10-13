@@ -46,7 +46,7 @@ test('uncertain creation remains claimed after failure and cannot resend',async(
 });
 test('missing ID is rejected without channel discovery',async()=>{
  const s=setup(); s.guild.channels.fetch=async()=>{throw new Error('should not fetch');};
- await assert.rejects(resolveLootChannel(s.guild,{}),/WOWAUDIT_LOOT_CHANNEL_ID/);
+ await assert.rejects(resolveLootChannel(s.guild,{}),/wow-loot-actualizar canal/);
 });
 test('never edits a message owned by another bot',async()=>{
  const s=setup(); await updateLootPanel(s.guild,config,payload,s.store);

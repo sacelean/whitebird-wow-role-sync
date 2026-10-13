@@ -9,6 +9,8 @@ process.env.DATABASE_PATH = join(testDirectory, 'test.sqlite');
 
 const {
   db,
+  getLootDestination,
+  setLootDestination,
   getLootPanel,
   claimLootPanel,
   saveLootPanel,
@@ -100,4 +102,17 @@ test('migration recovers newest confirmed weekly message and preserves an existi
     assert.deepEqual(reopened.getLootPanel('legacy-g','legacy-c'),{message_id:'new-message',status:'ready',last_slot:'2026-10-14'});
     assert.equal(reopened.getLootPanel('preserved-g','preserved-c').message_id,'manual-message');
   } finally { reopened.db.close(); }
+});
+
+test('command-selected destination persists per guild and can be changed',async()=>{
+ assert.equal(getLootDestination('destination-g'),null);
+ setLootDestination('destination-g','channel-one');
+ setLootDestination('other-destination-g','other-channel');
+ setLootDestination('destination-g','channel-two');
+ assert.equal(getLootDestination('destination-g'),'channel-two');
+ const reopened=await import('../src/database.js?destination-test');
+ try {
+  assert.equal(reopened.getLootDestination('destination-g'),'channel-two');
+  assert.equal(reopened.getLootDestination('other-destination-g'),'other-channel');
+ } finally { reopened.db.close(); }
 });

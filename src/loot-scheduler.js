@@ -1,5 +1,5 @@
 import { getLootConfig, fetchLootReport, weeklySlot, weeklyCutoff } from './wowaudit.js';
-import { lootPanelStore, getWowLinks } from './database.js';
+import { lootPanelStore, getWowLinks, getLootDestination } from './database.js';
 import { updateLootPanel } from './loot-panel.js';
 
 export function startLootScheduler(client, guildId) {
@@ -8,16 +8,19 @@ export function startLootScheduler(client, guildId) {
   if (!config) return;
   let busy = false;
   let retryAfter = 0;
-  let completedSlot = null;
+  let completedKey = null;
+  if (!getLootDestination(guildId) && !config.channelId) console.warn('Elige un canal para el informe semanal con /wow-loot-actualizar canal:#tu-canal.');
   async function tick() {
     const slot = weeklySlot();
-    if (!slot || busy || slot === completedSlot || Date.now() < retryAfter) return;
+    const channelId = getLootDestination(guildId) || config.channelId;
+    const key = `${slot}:${channelId}`;
+    if (!slot || !channelId || busy || key === completedKey || Date.now() < retryAfter) return;
     busy = true;
     try {
       const guild = await client.guilds.fetch(guildId);
       const report = await fetchLootReport(config, getWowLinks(guildId), weeklyCutoff(slot));
-      await updateLootPanel(guild, config, report, lootPanelStore, slot);
-      completedSlot = slot;
+      await updateLootPanel(guild, { ...config, channelId }, report, lootPanelStore, slot);
+      completedKey = key;
     } catch (error) {
       console.error('Informe WoWAudit:', error.message);
       retryAfter = Date.now() + 5 * 60_000;

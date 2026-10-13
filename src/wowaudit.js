@@ -17,7 +17,7 @@ export function getLootConfig(env = process.env) {
   if (!env.WOWAUDIT_API_KEY && !env.WOWAUDIT_LOOT_CHANNEL_ID) return null;
   if (!env.WOWAUDIT_API_KEY?.trim()) throw new WoWAuditError('Configura WOWAUDIT_API_KEY.');
   const channelId = env.WOWAUDIT_LOOT_CHANNEL_ID?.trim() || null;
-  if (!channelId || !/^\d{17,20}$/.test(channelId)) throw new WoWAuditError('WOWAUDIT_LOOT_CHANNEL_ID no válido.');
+  if (channelId && !/^\d{17,20}$/.test(channelId)) throw new WoWAuditError('WOWAUDIT_LOOT_CHANNEL_ID no válido.');
   const days = env.WOWAUDIT_LOOT_WINDOW_DAYS ? Number(env.WOWAUDIT_LOOT_WINDOW_DAYS) : null;
   if (days !== null && (!Number.isInteger(days) || days < 1 || days > 3660)) throw new WoWAuditError('WOWAUDIT_LOOT_WINDOW_DAYS debe estar entre 1 y 3660.');
   const categories = (env.WOWAUDIT_LOOT_CATEGORIES || DEFAULT_LOOT_CATEGORIES.join(',')).split(',').map(s => s.trim());
