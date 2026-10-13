@@ -156,3 +156,35 @@ export function finishLootReport(guildId, channelId, slot, messageId) {
 export function hasLootReport(guildId, channelId, slot) {
   return Boolean(db.prepare('SELECT 1 FROM wowaudit_reports WHERE guild_id=? AND channel_id=? AND slot=?').get(guildId, channelId, slot));
 }
+
+
+// One durable panel per guild/channel. A creation claim prevents uncertain sends from duplicating it.
+db.exec(`CREATE TABLE IF NOT EXISTS wowaudit_loot_panels (
+  guild_id TEXT NOT NULL, channel_id TEXT NOT NULL, message_id TEXT,
+  status TEXT NOT NULL, last_slot TEXT,
+  PRIMARY KEY (guild_id, channel_id)
+);
+INSERT OR IGNORE INTO wowaudit_loot_panels (guild_id, channel_id, message_id, status, last_slot)
+SELECT r.guild_id, r.channel_id, r.message_id, 'ready', r.slot FROM wowaudit_reports r
+WHERE r.status='sent' AND r.message_id IS NOT NULL AND r.slot=(
+  SELECT MAX(p.slot) FROM wowaudit_reports p
+  WHERE p.guild_id=r.guild_id AND p.channel_id=r.channel_id AND p.status='sent' AND p.message_id IS NOT NULL
+);`);
+export function getLootPanel(guildId, channelId) {
+  return db.prepare('SELECT message_id, status, last_slot FROM wowaudit_loot_panels WHERE guild_id=? AND channel_id=?').get(guildId, channelId) || null;
+}
+export function claimLootPanel(guildId, channelId, missingMessageId = null) {
+  if (missingMessageId) {
+    return db.prepare("UPDATE wowaudit_loot_panels SET message_id=NULL, status='creating' WHERE guild_id=? AND channel_id=? AND message_id=? AND status='ready'")
+      .run(guildId, channelId, missingMessageId).changes === 1;
+  }
+  return db.prepare("INSERT OR IGNORE INTO wowaudit_loot_panels (guild_id, channel_id, status) VALUES (?, ?, 'creating')")
+    .run(guildId, channelId).changes === 1;
+}
+export function saveLootPanel(guildId, channelId, messageId, slot = null) {
+  db.prepare(`INSERT INTO wowaudit_loot_panels VALUES (?, ?, ?, 'ready', ?)
+    ON CONFLICT(guild_id, channel_id) DO UPDATE SET message_id=excluded.message_id, status='ready',
+    last_slot=COALESCE(excluded.last_slot, wowaudit_loot_panels.last_slot)`)
+    .run(guildId, channelId, messageId, slot);
+}
+export const lootPanelStore = { get: getLootPanel, claim: claimLootPanel, save: saveLootPanel };

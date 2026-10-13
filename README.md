@@ -125,13 +125,14 @@ Integración opcional: miércoles a las **20:00 Europe/Madrid**, con cambios de 
 
 ```dotenv
 WOWAUDIT_API_KEY=<clave del equipo de WoWAudit>
-WOWAUDIT_LOOT_CHANNEL_ID=<ID del canal de este servidor>
+WOWAUDIT_LOOT_CHANNEL_ID=
+WOWAUDIT_LOOT_CHANNEL_NAME=rooster-summary
 WOWAUDIT_LOOT_WINDOW_DAYS=
 WOWAUDIT_LOOT_CATEGORIES=BIS,Mejora de stats,set 4p,Catalizar
 WOWAUDIT_LOOT_RANKS=Oficiales,Fijo,Rotativo
 ```
 
-La clave selecciona el equipo de WoWAudit. Guarda `.env` solo en el servidor (`chmod 600 .env`); nunca en Git ni en la imagen. El bot necesita Ver canal y Enviar mensajes en el destino. Ambos campos vacíos desactivan la integración; una configuración parcial o inválida la desactiva con un error de configuración, sin detener la sincronización Blizzard.
+La clave selecciona el equipo de WoWAudit. Guarda `.env` solo en el servidor (`chmod 600 .env`); nunca en Git ni en la imagen. El bot necesita Ver canal y Enviar mensajes en el destino. La integración se activa con la clave. El destino predeterminado es el canal de texto `rooster-summary` del servidor configurado. Un ID en `WOWAUDIT_LOOT_CHANNEL_ID` tiene prioridad sobre el nombre; déjalo vacío para usar el nombre, o pon el ID de `rooster-summary`. Si hay varios canales con ese nombre, exige un ID para evitar publicar en uno incorrecto. El bot necesita también Leer historial de mensajes e Insertar enlaces. Sin configuración WoWAudit queda desactivada; errores de configuración no detienen Blizzard.
 
 **Contrato verificado el 13-10-2026:** [API oficial](https://wowaudit.com/api), Swagger integrado en su aplicación web. El ejemplo Swagger antiguo de `GET /v1/period` incluye `current_season.keystone_season_id`; si existe se utiliza ese campo. La respuesta real comprobada del equipo no lo incluye: se utiliza `current_season.id` (18), y se ha confirmado HTTP 200 con 546 registros en `/v1/loot_history/18`. No se confunde este ID con `pvp_season_id` ni `tier_id`. `GET /v1/characters` devuelve un array del roster. `GET /v1/loot_history/{id}` devuelve `history_items`; el destinatario es `character_id`, no `awarded_by_character_id` ni `awarded_by_name`. Autenticación mediante `Authorization: Bearer ...`. La documentación describe el historial completo de temporada, sin paginación ni filtros por fecha; el filtro temporal se aplica localmente. `test/fixtures/wowaudit.json` contiene ejemplos oficiales; `wowaudit-period-live.json` reproduce únicamente los metadatos públicos de temporada comprobados, sin clave ni historial del equipo.
 
@@ -139,7 +140,7 @@ La clave selecciona el equipo de WoWAudit. Guarda `.env` solo en el servidor (`c
 
 El roster relevante es el **roster actual del equipo de WoWAudit**, con `status=tracking` y rangos Oficiales, Fijo y Rotativo; Trial queda fuera. `WOWAUDIT_LOOT_RANKS` permite ajustar esta selección (sin distinguir mayúsculas ni espacios repetidos). La respuesta real comprobada tiene 3 Oficiales, 17 Fijo, 3 Rotativo y 7 Trial: con estos rangos entran 23 personajes. Se inicializa con cero antes de contar. Cada personaje seleccionado se cuenta independientemente; no se suma loot de alts. No reconstruye rosters históricos ni divide por asistencia: recién incorporados pueden tener cero. No infiere propietarios de alts. La base existente solo vincula un main por usuario: las menciones se resuelven por nombre y reino normalizados, únicamente si la coincidencia es única, sin ping. Personajes sin vínculo aparecen por nombre/reino. Un nombre ambiguo o un duplicado de identidad en WoWAudit cancela el informe para evitar atribuciones incorrectas.
 
-Se deduplica por `id` y por `rclootcouncil_id` cuando existe; duplicados con destinatario/objeto/fecha/estado/categorías incompatibles cancelan el informe. No se deduplica por ID de objeto: dos objetos iguales adjudicados legítimamente cuentan dos veces. Los empates comparten puesto; nombre/reino e ID determinan el orden, con cinco entradas como máximo por lista y aviso si el empate continúa después del corte. Con menos de diez personajes las listas pueden solaparse. Un historial vacío válido genera ceros con advertencia de cobertura: no prueba que no haya habido loot. El informe solo representa lo importado en WoWAudit, no todo el loot del juego.
+Se deduplica por `id` y por `rclootcouncil_id` cuando existe; duplicados con destinatario/objeto/fecha/estado/categorías incompatibles cancelan el informe. No se deduplica por ID de objeto: dos objetos iguales adjudicados legítimamente cuentan dos veces. El mensaje muestra **todos los personajes seleccionados**, ordenados de mayor a menor loot, incluidos los ceros. Los empates comparten puesto; nombre/reino e ID determinan el orden. La lista se presenta en bloques dentro de un único mensaje con embed, sin pings. Si excediera los límites de un mensaje Discord, cancela la actualización sin recortar el roster ni sobrescribir el informe anterior. Un historial vacío válido genera ceros con advertencia de cobertura: no prueba que no haya habido loot. El informe solo representa lo importado en WoWAudit, no todo el loot del juego.
 
 **Docker:** utiliza el `compose.yaml` existente con `.env` y el volumen persistente `./data`. Tras configurar:
 
@@ -150,15 +151,19 @@ docker compose up -d
 docker compose logs --tail=100 bot
 ```
 
-Conserva el volumen y ejecuta una sola instancia del bot. La tabla SQLite `wowaudit_reports` guarda la semana, canal, estado y mensaje. Consulta al arrancar y cada minuto: si arranca el miércoles entre 20:00 y 20:59 recupera el envío de esa semana; fuera de esa hora espera a la siguiente semana. Fallos de API se reintentan cada cinco minutos durante esa hora; timeout de 15 segundos por petición, tres intentos para fallos transitorios/429 y espera limitada. Errores de permisos o esquema no producen rankings parciales. No registra claves ni cuerpos de error.
+Conserva el volumen y ejecuta una sola instancia del bot. La tabla SQLite `wowaudit_loot_panels` guarda un único ID de mensaje por servidor/canal, estado de creación y última semana actualizada. El primer envío crea el mensaje; los siguientes lo editan, también después de reiniciar. Si existía un envío semanal confirmado en `wowaudit_reports`, recupera el último mensaje de ese canal para continuar actualizándolo. No borra mensajes antiguos.
 
-Antes de enviar se guarda una marca `sending`. Si Discord acepta el mensaje pero la conexión falla, o el proceso cae entre envío y confirmación, no se reenvía automáticamente: revisa el canal y esa fila en SQLite. Si confirmas que no se envió, elimina únicamente la fila de esa semana/canal para reintentar dentro de la hora; respalda la base primero. Esto prioriza evitar duplicados y puede requerir recuperación manual. No hay envíos retroactivos fuera de la hora indicada.
+Consulta al arrancar y cada minuto: entre las 20:00 y las 20:59 del miércoles actualiza una vez esa semana, con cierre fijo a las 20:00. Fuera de esa hora espera a la semana siguiente. Fallos anteriores a crear o durante una edición se reintentan cada cinco minutos durante esa hora. La API tiene timeout de 15 segundos por petición y hasta tres intentos para fallos transitorios/429. No registra claves ni cuerpos de error.
+
+Si el mensaje guardado fue borrado (Discord Unknown Message), crea un reemplazo y guarda su nuevo ID. Fallos de acceso/permisos/red no generan un mensaje nuevo. Una creación incierta conserva el estado `creating` para evitar duplicados: revisa el canal y la fila de `wowaudit_loot_panels`; si el mensaje existe, guarda su ID y cambia el estado a `ready`; si confirmas que no llegó, elimina únicamente esa fila para permitir la creación en el siguiente intento. Respaldar la base antes de corregir manualmente. Las ediciones se pueden reintentar sin duplicar mensajes.
 
 Validación automática con ejemplos oficiales y respuestas simuladas. Para validar datos reales, configura la clave del equipo y comprueba una adjudicación conocida, un personaje con cero y el roster antes del primer miércoles. No se ha calculado ni publicado un ranking real de Whitebird durante el desarrollo.
 
 ### Probar el informe sin esperar al miércoles
 
-Un oficial (Gestionar servidor o `OFFICER_ROLE_IDS`) puede ejecutar **`/wow-loot-probar`**. Consulta datos reales con los mismos filtros y período configurados, pero con cierre en el momento de ejecutar el comando. La respuesta es privada y no genera menciones ni publica en el canal de destino. No modifica las marcas de envío semanal de SQLite, por lo que no consume ni bloquea el informe del miércoles. Requiere la configuración WoWAudit completa; los errores producen un aviso, sin ranking parcial.
+Un oficial (Gestionar servidor o `OFFICER_ROLE_IDS`) puede ejecutar **`/wow-loot-probar`**. Muestra la lista completa de forma privada, con datos reales y cierre en el momento de ejecutar el comando. No modifica el mensaje público ni la marca semanal. Requiere la clave y filtros de WoWAudit; los errores producen un aviso, sin ranking parcial.
+
+Para publicar por primera vez o actualizarlo al momento, ejecuta **`/wow-loot-actualizar`** (solo oficiales). Genera el informe hasta ahora, crea o edita el mismo mensaje público en `rooster-summary` y devuelve su enlace en una respuesta privada. Comparte la misma persistencia y protección ante duplicados con la actualización semanal. Una actualización manual no consume la actualización del miércoles.
 
 Después de desplegar esta versión, registra el nuevo comando:
 

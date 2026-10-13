@@ -9,6 +9,9 @@ process.env.DATABASE_PATH = join(testDirectory, 'test.sqlite');
 
 const {
   db,
+  getLootPanel,
+  claimLootPanel,
+  saveLootPanel,
   claimLootReport,
   finishLootReport,
   hasLootReport,
@@ -68,4 +71,33 @@ test('claims persist and isolate weeks/channels, including uncertain sends', () 
   assert.deepEqual(db.prepare('SELECT status, message_id FROM wowaudit_reports').get(), {status:'sent', message_id:'m1'});
   assert.equal(claimLootReport('g1', 'c2', '2026-10-14'), true);
   assert.equal(claimLootReport('g1', 'c1', '2026-10-21'), true);
+});
+
+test('loot panel persists a single message ID and weekly slot across manual refreshes',()=>{
+ assert.equal(claimLootPanel('panel-g','panel-c'),true);
+ assert.equal(claimLootPanel('panel-g','panel-c'),false);
+ assert.equal(getLootPanel('panel-g','panel-c').status,'creating');
+ saveLootPanel('panel-g','panel-c','panel-m','2026-10-14');
+ saveLootPanel('panel-g','panel-c','panel-m');
+ assert.deepEqual(getLootPanel('panel-g','panel-c'),{message_id:'panel-m',status:'ready',last_slot:'2026-10-14'});
+ assert.equal(claimLootPanel('panel-g','panel-c','wrong-id'),false);
+ assert.equal(claimLootPanel('panel-g','panel-c','panel-m'),true);
+ assert.equal(getLootPanel('panel-g','panel-c').status,'creating');
+ saveLootPanel('panel-g','panel-c','replacement','2026-10-21');
+ assert.equal(getLootPanel('panel-g','panel-c').message_id,'replacement');
+});
+
+test('migration recovers newest confirmed weekly message and preserves an existing panel',async()=>{
+  claimLootReport('legacy-g','legacy-c','2026-10-07');
+  finishLootReport('legacy-g','legacy-c','2026-10-07','old-message');
+  claimLootReport('legacy-g','legacy-c','2026-10-14');
+  finishLootReport('legacy-g','legacy-c','2026-10-14','new-message');
+  saveLootPanel('preserved-g','preserved-c','manual-message');
+  claimLootReport('preserved-g','preserved-c','2026-10-14');
+  finishLootReport('preserved-g','preserved-c','2026-10-14','legacy-message');
+  const reopened=await import('../src/database.js?migration-test');
+  try {
+    assert.deepEqual(reopened.getLootPanel('legacy-g','legacy-c'),{message_id:'new-message',status:'ready',last_slot:'2026-10-14'});
+    assert.equal(reopened.getLootPanel('preserved-g','preserved-c').message_id,'manual-message');
+  } finally { reopened.db.close(); }
 });

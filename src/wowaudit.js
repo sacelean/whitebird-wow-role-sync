@@ -14,17 +14,19 @@ function requireSchema(ok, detail = 'respuesta incompatible') {
 }
 
 export function getLootConfig(env = process.env) {
-  if (!env.WOWAUDIT_API_KEY && !env.WOWAUDIT_LOOT_CHANNEL_ID) return null;
-  if (!env.WOWAUDIT_API_KEY?.trim() || !/^\d{17,20}$/.test(env.WOWAUDIT_LOOT_CHANNEL_ID || '')) {
-    throw new WoWAuditError('Configura WOWAUDIT_API_KEY y WOWAUDIT_LOOT_CHANNEL_ID.');
-  }
+  if (!env.WOWAUDIT_API_KEY && !env.WOWAUDIT_LOOT_CHANNEL_ID && !env.WOWAUDIT_LOOT_CHANNEL_NAME) return null;
+  if (!env.WOWAUDIT_API_KEY?.trim()) throw new WoWAuditError('Configura WOWAUDIT_API_KEY.');
+  const channelId = env.WOWAUDIT_LOOT_CHANNEL_ID?.trim() || null;
+  const channelName = env.WOWAUDIT_LOOT_CHANNEL_NAME?.trim() || 'rooster-summary';
+  if (channelId && !/^\d{17,20}$/.test(channelId)) throw new WoWAuditError('WOWAUDIT_LOOT_CHANNEL_ID no válido.');
+  if (channelName.length > 100) throw new WoWAuditError('WOWAUDIT_LOOT_CHANNEL_NAME no válido.');
   const days = env.WOWAUDIT_LOOT_WINDOW_DAYS ? Number(env.WOWAUDIT_LOOT_WINDOW_DAYS) : null;
   if (days !== null && (!Number.isInteger(days) || days < 1 || days > 3660)) throw new WoWAuditError('WOWAUDIT_LOOT_WINDOW_DAYS debe estar entre 1 y 3660.');
   const categories = (env.WOWAUDIT_LOOT_CATEGORIES || DEFAULT_LOOT_CATEGORIES.join(',')).split(',').map(s => s.trim());
   if (categories.some(s => !s || s.length > 100)) throw new WoWAuditError('WOWAUDIT_LOOT_CATEGORIES no válido.');
   const ranks = (env.WOWAUDIT_LOOT_RANKS || DEFAULT_LOOT_RANKS.join(',')).split(',').map(s => s.trim());
   if (ranks.length > 10 || ranks.some(s => !s || s.length > 100)) throw new WoWAuditError('WOWAUDIT_LOOT_RANKS no válido.');
-  return { apiKey: env.WOWAUDIT_API_KEY.trim(), channelId: env.WOWAUDIT_LOOT_CHANNEL_ID, days, categories, ranks };
+  return { apiKey: env.WOWAUDIT_API_KEY.trim(), channelId, channelName, days, categories, ranks };
 
 }
 
@@ -92,11 +94,14 @@ export function buildLootRanking(roster, history, links, { start, end, categorie
     else outsideRoster++;
   }
   const compare = (a,b) => identity(a.name,a.realm).localeCompare(identity(b.name,b.realm), 'en') || a.id-b.id;
-  const ordered = (direction) => {
-    const all = [...rows.values()].sort((a,b) => direction * (a.count-b.count) || compare(a,b));
-    return all.slice(0,5).map((r,i) => ({ ...r, position: all.findIndex(x => x.count === r.count) + 1, cutTie: i === 4 && all[5]?.count === r.count }));
-  };
-  return { most: ordered(-1), least: ordered(1), size: rows.size, total: [...rows.values()].reduce((n,r)=>n+r.count,0), outsideRoster };
+  const rowsSorted = [...rows.values()].sort((a,b) => b.count-a.count || compare(a,b));
+  let position = 1;
+  const all = rowsSorted.map((r,i) => {
+    if (i && rowsSorted[i-1].count !== r.count) position = i+1;
+    return { ...r, position };
+  });
+  return { all, size: rows.size, total: all.reduce((n,r)=>n+r.count,0), outsideRoster };
+
 }
 
 export async function fetchLootReport(config, links, end = Date.now(), fetcher = fetch) {
@@ -114,18 +119,28 @@ export async function fetchLootReport(config, links, end = Date.now(), fetcher =
   const loot = await auditGet(`/v1/loot_history/${seasonId}`, config.apiKey, fetcher);
   const ranking = buildLootRanking(roster, loot?.history_items, links, { start, end, categories: config.categories, ranks: config.ranks });
   const safe = s => s.replace(/[\\*_`~|<>@]/g, '').replace(/[\r\n]/g,' ').slice(0,30);
-  const section = (title, rows) => [title, ...rows.map(r => `${r.position}. ${safe(r.name)} · ${safe(r.realm)}${r.userId ? ` (<@${r.userId}>)` : ''}: **${r.count}**${r.cutTie ? ' (empate en el corte)' : ''}`)].join('\n');
-  const content = [
-    '**Informe semanal de loot registrado en WoWAudit — por personaje**',
+  const description = [
     `Temporada WoWAudit ${seasonId}; [${new Date(start).toISOString()}, ${new Date(end).toISOString()}) UTC.`,
-    `Roster actual en seguimiento: ${(config.ranks || DEFAULT_LOOT_RANKS).map(safe).join(', ')} · ${ranking.size} personajes · ${ranking.total} objetos.`,
-    `Filtros: Mythic · categorías: ${config.categories.map(safe).join(', ')}.`,
-    section('**5 con más loot**', ranking.most), section('**5 con menos loot**', ranking.least),
-    `Empates: mismo puesto, orden por nombre/reino; máximo 5 por lista. Alts sin agrupar. Fuera del roster: ${ranking.outsideRoster} registros.`,
-    'Solo adjudicaciones registradas, no descartadas (incluye respuestas excluidas). Cero significa sin registros válidos en este período; no acredita cobertura completa.'
+    `Roster en seguimiento: ${(config.ranks || DEFAULT_LOOT_RANKS).map(safe).join(', ')} · ${ranking.size} personajes · **${ranking.total} objetos**.`,
+    `Mythic · categorías: ${config.categories.map(safe).join(', ')}.`
   ].join('\n');
-  requireSchema(content.length <= 2000, 'el informe supera el límite de Discord');
-  return content;
+  const chunks = [];
+  let chunk = '';
+  for (const row of ranking.all) {
+    const line = `${row.position}. **${safe(row.name)}** · ${safe(row.realm)}${row.userId ? ` (<@${row.userId}>)` : ''} — **${row.count}**`;
+    if (chunk && chunk.length + line.length + 1 > 1024) { chunks.push(chunk); chunk = ''; }
+    chunk += `${chunk ? '\n' : ''}${line}`;
+  }
+  if (chunk) chunks.push(chunk);
+  const embed = {
+    title: 'Loot Mythic — roster completo', color: 0x38b66b, description,
+    fields: chunks.map((value,i) => ({ name: chunks.length === 1 ? 'Personajes' : `Personajes (${i+1}/${chunks.length})`, value })),
+    footer: { text: `Empates: mismo puesto y orden por nombre/reino. Por personaje, sin agrupar alts. Fuera del roster: ${ranking.outsideRoster}. Solo loot registrado y no descartado; cero no acredita cobertura completa.` }
+  };
+  const length = embed.title.length + description.length + embed.footer.text.length + embed.fields.reduce((n,f)=>n+f.name.length+f.value.length,0);
+  requireSchema(embed.fields.length <= 25 && length <= 6000, 'el roster completo supera el límite de un mensaje Discord');
+  return { embeds: [embed], allowedMentions: { parse: [] } };
+
 }
 
 export function weeklySlot(now = Date.now()) {

@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { updateLootPanel } from './loot-panel.js';
 import { startLootScheduler } from './loot-scheduler.js';
 import { getLootConfig, fetchLootReport, lootErrorMessage } from './wowaudit.js';
 import { randomUUID } from 'node:crypto';
@@ -14,6 +15,7 @@ import {
   StringSelectMenuBuilder
 } from 'discord.js';
 import {
+  lootPanelStore,
   getCauldronAssignments,
   getCauldronPanel,
   getWowLinks,
@@ -493,21 +495,23 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return interaction.reply({ content: 'Este bot solo está configurado para su servidor de Whitebird.', flags: MessageFlags.Ephemeral });
     }
 
-    if (interaction.commandName === 'wow-loot-probar') {
+    if (['wow-loot-probar', 'wow-loot-actualizar'].includes(interaction.commandName)) {
       if (!isOfficer(interaction)) return interaction.reply(unauthorizedReply());
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       try {
         const config = getLootConfig();
-        if (!config) return interaction.editReply('WoWAudit está desactivado. Configura WOWAUDIT_API_KEY y WOWAUDIT_LOOT_CHANNEL_ID en el servidor.');
-        const content = await fetchLootReport(config, getWowLinks(guildId), Date.now());
-        return interaction.editReply({
-          content: content.replace('Informe semanal de loot registrado en WoWAudit', 'Vista previa de loot WoWAudit (hasta ahora)'),
-          allowedMentions: { parse: [] }
-        });
+        if (!config) return interaction.editReply('WoWAudit está desactivado. Configura WOWAUDIT_API_KEY en el servidor.');
+        const report = await fetchLootReport(config, getWowLinks(guildId), Date.now());
+        if (interaction.commandName === 'wow-loot-actualizar') {
+          const panel = await updateLootPanel(interaction.guild, config, report, lootPanelStore);
+          return interaction.editReply({ content: `Informe actualizado: https://discord.com/channels/${guildId}/${panel.channelId}/${panel.messageId}`, allowedMentions: { parse: [] } });
+        }
+        return interaction.editReply({ ...report, embeds: report.embeds.map(embed => ({ ...embed, title: 'Vista previa — roster completo (hasta ahora)' })) });
+
       } catch (error) {
-        const detail = lootErrorMessage(error);
-        console.error('Vista previa de loot:', detail);
-        return interaction.editReply({ content: `No se pudo generar la vista previa. ${detail}`, allowedMentions: { parse: [] } });
+        const detail = error?.name === 'LootPanelError' ? error.message : lootErrorMessage(error);
+        console.error('Informe de loot:', detail);
+        return interaction.editReply({ content: `No se pudo preparar o actualizar el informe de loot. ${detail}`, allowedMentions: { parse: [] } });
       }
     }
 

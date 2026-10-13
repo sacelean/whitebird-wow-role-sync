@@ -8,8 +8,8 @@ const history = fixture['/v1/loot_history/{id}'].history_items;
 const options = { start:Date.parse('2024-10-01T00:00Z'),end:Date.parse('2024-10-02T00:00Z'),categories:['Major','Minor'],ranks:['Main'] };
 test('official example: recipient, zeros, stable ties, duplicate imports and discarded awards',()=>{
  const result = buildLootRanking(roster,[...history,history[0],{...history[0],id:99},{...history[0],id:100,rclootcouncil_id:'other',discarded:true}], [{character_name:'kormash',realm_slug:'stormrage',user_id:'123'}],options);
- assert.equal(result.total,2); assert.equal(result.most[0].name,'Kormash'); assert.equal(result.most[0].userId,'123');
- assert.equal(result.least[0].count,0); assert.deepEqual(result.least.map(r=>r.position),[1,1,1,4]);
+ assert.equal(result.total,2); assert.equal(result.all[0].name,'Kormash'); assert.equal(result.all[0].userId,'123');
+ assert.equal(result.all.at(-1).count,0); assert.deepEqual(result.all.map(r=>r.position),[1,2,2,2]);
 });
 test('time boundaries, tracked ranks and alts stay separate',()=>{
  const alt = {...roster[0],id:9,name:'Alt',rank:'Alt'};
@@ -23,11 +23,11 @@ test('reject malformed responses and conflicting duplicates',()=>{
  assert.throws(()=>buildLootRanking([...roster,{...roster[0],id:10}],history,[],options));
  assert.throws(()=>buildLootRanking(roster,[{...history[0],awarded_at:null}],[],options));
 });
-test('five entries, shared positions and cutoff tie',()=>{
+test('full roster is never cut to five and tied entries share positions',()=>{
  const r = Array.from({length:7},(_,i)=>({...roster[0],id:i+1,name:`Person${i}`}));
  const result=buildLootRanking(r,[],[],options);
- assert.equal(result.most.length,5); assert.equal(result.least[4].cutTie,true);
- assert.ok(result.most.every(x=>x.position===1));
+ assert.equal(result.all.length,7);
+ assert.ok(result.all.every(x=>x.position===1));
 });
 test('Madrid Wednesday at 20:00 across DST, not host timezone',()=>{
  for(const time of ['2026-07-01T18:00Z','2026-10-28T19:00Z']) assert.ok(weeklySlot(Date.parse(time)));
@@ -35,7 +35,7 @@ test('Madrid Wednesday at 20:00 across DST, not host timezone',()=>{
 });
 test('optional config validates before requests',()=>{
  assert.equal(getLootConfig({}),null);
- assert.throws(()=>getLootConfig({WOWAUDIT_API_KEY:'secret'}));
+ assert.throws(()=>getLootConfig({WOWAUDIT_LOOT_CHANNEL_ID:'123456789012345678'}));
  assert.throws(()=>getLootConfig({WOWAUDIT_API_KEY:'secret',WOWAUDIT_LOOT_CHANNEL_ID:'123456789012345678',WOWAUDIT_LOOT_WINDOW_DAYS:'0'}));
 });
 test('verified paths, keystone season, Bearer header and window',async()=>{
@@ -48,7 +48,7 @@ test('verified paths, keystone season, Bearer header and window',async()=>{
  };
  const content=await fetchLootReport({apiKey:'private',days:1,categories:['Major','Minor'],ranks:['Main']},[],options.end,fetcher);
  assert.deepEqual(calls.map(u=>new URL(u).pathname),['/v1/period','/v1/characters','/v1/loot_history/11']);
- assert.match(content,/Kormash/); assert.match(content,/2024-10-01T00:00:00.000Z/); assert.doesNotMatch(content,/private/);
+ assert.match(JSON.stringify(content),/Kormash/); assert.match(JSON.stringify(content),/2024-10-01T00:00:00.000Z/); assert.doesNotMatch(JSON.stringify(content),/private/);
 });
 test('HTTP authorization errors never leak body or key',async()=>{
  await assert.rejects(auditGet('/v1/period','secret',async()=>({ok:false,status:401})),/^Error: WoWAudit: HTTP 401\.$/);
@@ -69,13 +69,13 @@ test('only Mythic Main and the four selected categories, keeping zero-loot mains
   award(20,'Catalizar'),award(21,'set 4p Catalizar'),
  ],[],{start:options.start,end:options.end,ranks:['Main']});
  assert.equal(result.total,5); assert.equal(result.size,4);
- assert.equal(result.most[0].name,'Kormash'); assert.equal(result.least[0].count,0);
- assert.ok(!result.most.some(r=>r.name==='Trial'));
+ assert.equal(result.all[0].name,'Kormash'); assert.equal(result.all.at(-1).count,0);
+ assert.ok(!result.all.some(r=>r.name==='Trial'));
 });
 
 test('preview diagnostics expose only controlled errors, never arbitrary exception contents',()=>{
  assert.equal(lootErrorMessage(new Error('secret-token')),'WoWAudit: error interno al generar o mostrar el informe.');
- try { getLootConfig({WOWAUDIT_API_KEY:'secret-token'}); } catch(error) {
+ try { getLootConfig({WOWAUDIT_LOOT_CHANNEL_ID:'secret-token'}); } catch(error) {
   assert.match(lootErrorMessage(error),/Configura WOWAUDIT_API_KEY/);
   assert.doesNotMatch(lootErrorMessage(error),/secret-token/);
  }
@@ -90,7 +90,7 @@ test('live period without keystone ID uses verified WoWAudit season id 18',async
   return {ok:true,json:async()=>data};
  });
  assert.deepEqual(paths,['/v1/period','/v1/characters','/v1/loot_history/18']);
- assert.match(content,/Temporada WoWAudit 18/); assert.match(content,/2026-08-11T00:00:00.000Z/);
+ assert.match(JSON.stringify(content),/Temporada WoWAudit 18/); assert.match(JSON.stringify(content),/2026-08-11T00:00:00.000Z/);
 });
 test('invalid legacy season identifier is rejected rather than falling back silently',async()=>{
  let calls=0;
@@ -108,8 +108,8 @@ test('real Whitebird rank distribution includes 23 tracked characters and exclud
  tracked.push({...roster[0],id:31,name:'Inactive',rank:'Fijo',status:'pending'});
  const loot=[...history.map((item,i)=>({...item,id:i+1,rclootcouncil_id:`live-${i}`,character_id:i===0?1:24,response_type:{name:'BIS'}}))];
  const result=buildLootRanking(tracked,loot,[],{start:options.start,end:options.end});
- assert.equal(result.size,23); assert.equal(result.total,1); assert.equal(result.least[0].count,0);
- assert.ok([...result.most,...result.least].every(c=>c.rank!=='Trial'));
+ assert.equal(result.size,23); assert.equal(result.total,1); assert.equal(result.all.at(-1).count,0);
+ assert.ok(result.all.every(c=>c.rank!=='Trial'));
  const configured=buildLootRanking(tracked,loot,[],{start:options.start,end:options.end,ranks:[' fijo ']});
  assert.equal(configured.size,17);
 });
@@ -129,10 +129,25 @@ test('merged categories count their final label exactly once, matching the websi
   award(105,'Catalizar',null),
   award(106,'set 4p',null),
  ],[],{start:options.start,end:options.end,ranks:['Main']});
- assert.equal(result.total,5); assert.equal(result.most[0].count,5);
- assert.equal(result.least[0].count,0);
+ assert.equal(result.total,5); assert.equal(result.all[0].count,5);
+ assert.equal(result.all.at(-1).count,0);
 });
 test('conflicting duplicate category mappings cancel the report',()=>{
  const original={...history[0],response_type:{name:'Necesidad',propagated_to:{name:'BIS'}}};
  assert.throws(()=>buildLootRanking(roster,[original,{...original,response_type:{name:'Necesidad',propagated_to:{name:'OFF SPEC'}}}],[],options));
+});
+
+test('report renders all 23 rows in one message with Discord embed limits and no mentions',async()=>{
+ const reportRoster=Array.from({length:23},(_,i)=>({...roster[0],id:i+1,name:`Character${i}`,rank:'Fijo'}));
+ const period=JSON.parse(readFileSync(new URL('./fixtures/wowaudit-period-live.json',import.meta.url)));
+ const report=await fetchLootReport({apiKey:'test',categories:['BIS']},[],Date.parse('2026-10-13T18:00Z'),async(url)=>({ok:true,json:async()=>url.endsWith('/period')?period:url.endsWith('/characters')?reportRoster:{history_items:[]}}));
+ const text=report.embeds[0].fields.map(f=>f.value).join('\n');
+ assert.equal(text.split('\n').length,23);
+ assert.ok(report.embeds[0].fields.every(f=>f.value.length<=1024));
+ assert.deepEqual(report.allowedMentions,{parse:[]});
+});
+test('WoWAudit defaults to rooster-summary by name, with explicit ID override',()=>{
+ const config=getLootConfig({WOWAUDIT_API_KEY:'test'});
+ assert.equal(config.channelName,'rooster-summary'); assert.equal(config.channelId,null);
+ assert.equal(getLootConfig({WOWAUDIT_API_KEY:'test',WOWAUDIT_LOOT_CHANNEL_ID:'123456789012345678'}).channelId,'123456789012345678');
 });
