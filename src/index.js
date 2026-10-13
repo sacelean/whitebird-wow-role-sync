@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { startLootScheduler } from './loot-scheduler.js';
+import { getLootConfig, fetchLootReport } from './wowaudit.js';
 import { randomUUID } from 'node:crypto';
 import {
   ActionRowBuilder,
@@ -490,6 +491,22 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (!interaction.isChatInputCommand()) return;
     if (interaction.guildId !== guildId) {
       return interaction.reply({ content: 'Este bot solo está configurado para su servidor de Whitebird.', flags: MessageFlags.Ephemeral });
+    }
+
+    if (interaction.commandName === 'wow-loot-probar') {
+      if (!isOfficer(interaction)) return interaction.reply(unauthorizedReply());
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      try {
+        const config = getLootConfig();
+        if (!config) return interaction.editReply('WoWAudit está desactivado. Configura WOWAUDIT_API_KEY y WOWAUDIT_LOOT_CHANNEL_ID en el servidor.');
+        const content = await fetchLootReport(config, getWowLinks(guildId), Date.now());
+        return interaction.editReply({
+          content: content.replace('Informe semanal de loot registrado en WoWAudit', 'Vista previa de loot WoWAudit (hasta ahora)'),
+          allowedMentions: { parse: [] }
+        });
+      } catch {
+        return interaction.editReply('No se pudo generar la vista previa. Revisa la configuración de WoWAudit, los permisos de la API y su respuesta; no se ha publicado un ranking.');
+      }
     }
 
     if (interaction.commandName === 'wow-vincular-auto') return await autoLink(interaction);

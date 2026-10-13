@@ -8,6 +8,9 @@ if (!token || !clientId || !guildId) throw new Error('Configura DISCORD_TOKEN, D
 
 const commands = [
   new SlashCommandBuilder()
+    .setName('wow-loot-probar')
+    .setDescription('Vista previa privada del loot Mythic de mains en WoWAudit (oficiales)'),
+  new SlashCommandBuilder()
     .setName('wow-vincular-auto')
     .setDescription('Busca tu main de WoW comparando tu nombre con el roster de Blizzard'),
   new SlashCommandBuilder()

@@ -154,3 +154,16 @@ Conserva el volumen y ejecuta una sola instancia del bot. La tabla SQLite `wowau
 Antes de enviar se guarda una marca `sending`. Si Discord acepta el mensaje pero la conexión falla, o el proceso cae entre envío y confirmación, no se reenvía automáticamente: revisa el canal y esa fila en SQLite. Si confirmas que no se envió, elimina únicamente la fila de esa semana/canal para reintentar dentro de la hora; respalda la base primero. Esto prioriza evitar duplicados y puede requerir recuperación manual. No hay envíos retroactivos fuera de la hora indicada.
 
 Validación automática con ejemplos oficiales y respuestas simuladas. Para validar datos reales, configura la clave del equipo y comprueba una adjudicación conocida, un personaje con cero y el roster antes del primer miércoles. No se ha calculado ni publicado un ranking real de Whitebird durante el desarrollo.
+
+### Probar el informe sin esperar al miércoles
+
+Un oficial (Gestionar servidor o `OFFICER_ROLE_IDS`) puede ejecutar **`/wow-loot-probar`**. Consulta datos reales con los mismos filtros y período configurados, pero con cierre en el momento de ejecutar el comando. La respuesta es privada y no genera menciones ni publica en el canal de destino. No modifica las marcas de envío semanal de SQLite, por lo que no consume ni bloquea el informe del miércoles. Requiere la configuración WoWAudit completa; los errores producen un aviso, sin ranking parcial.
+
+Después de desplegar esta versión, registra el nuevo comando:
+
+```sh
+docker compose run --rm bot npm run register
+docker compose up -d --build
+```
+
+El registro requiere `DISCORD_CLIENT_ID`, `DISCORD_GUILD_ID` y `DISCORD_TOKEN` en `.env` y actualiza la lista de comandos del bot para el servidor configurado.
