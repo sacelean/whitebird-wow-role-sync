@@ -12,6 +12,10 @@ const commands = [
     .setDescription('Publica o actualiza el mensaje completo de loot (oficiales)')
     .addChannelOption(option => option.setName('canal').setDescription('Destino que se guardará también para los informes semanales').addChannelTypes(ChannelType.GuildText).setRequired(false)),
   new SlashCommandBuilder()
+    .setName('wow-raiders-actualizar')
+    .setDescription('Publica o actualiza la tabla semanal de raiders (oficiales)')
+    .addChannelOption(option => option.setName('canal').setDescription('Destino compartido con el informe semanal de loot').addChannelTypes(ChannelType.GuildText).setRequired(false)),
+  new SlashCommandBuilder()
     .setName('wow-vincular-auto')
     .setDescription('Busca tu main de WoW comparando tu nombre con el roster de Blizzard'),
   new SlashCommandBuilder()

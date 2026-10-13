@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { updateLootPanel } from './loot-panel.js';
 import { startLootScheduler } from './loot-scheduler.js';
-import { getLootConfig, fetchLootReport, lootErrorMessage } from './wowaudit.js';
+import { getLootConfig, fetchLootReport, fetchRaiderTableReport, lootErrorMessage } from './wowaudit.js';
 import { randomUUID } from 'node:crypto';
 import {
   ActionRowBuilder,
@@ -16,6 +16,7 @@ import {
 } from 'discord.js';
 import {
   lootPanelStore,
+  raiderPanelStore,
   getLootDestination,
   setLootDestination,
   getCauldronAssignments,
@@ -515,6 +516,26 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const detail = error?.name === 'LootPanelError' ? error.message : lootErrorMessage(error);
         console.error('Informe de loot:', detail);
         return interaction.editReply({ content: `No se pudo preparar o actualizar el informe de loot. ${detail}`, allowedMentions: { parse: [] } });
+      }
+    }
+
+    if (interaction.commandName === 'wow-raiders-actualizar') {
+      if (!isOfficer(interaction)) return interaction.reply(unauthorizedReply());
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      try {
+        const config = getLootConfig();
+        if (!config) return interaction.editReply('WoWAudit está desactivado. Configura WOWAUDIT_API_KEY en el servidor.');
+        const selectedChannel = interaction.options.getChannel('canal');
+        const channelId = selectedChannel?.id || getLootDestination(guildId);
+        if (!channelId) return interaction.editReply('Elige el destino con `/wow-raiders-actualizar canal:#tu-canal`. Se compartirá con los informes semanales de loot.');
+        const report = await fetchRaiderTableReport(config, getWowLinks(guildId), Date.now());
+        const panel = await updateLootPanel(interaction.guild, { ...config, channelId }, report, raiderPanelStore, null, 'resumen de raiders');
+        setLootDestination(guildId, panel.channelId);
+        return interaction.editReply({ content: `Resumen de raiders actualizado: https://discord.com/channels/${guildId}/${panel.channelId}/${panel.messageId}`, allowedMentions: { parse: [] } });
+      } catch (error) {
+        const detail = error?.name === 'LootPanelError' ? error.message : lootErrorMessage(error);
+        console.error('Resumen de raiders:', detail);
+        return interaction.editReply({ content: `No se pudo preparar o actualizar el resumen de raiders. ${detail}`, allowedMentions: { parse: [] } });
       }
     }
 

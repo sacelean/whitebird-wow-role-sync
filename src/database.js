@@ -189,6 +189,30 @@ export function saveLootPanel(guildId, channelId, messageId, slot = null) {
 }
 export const lootPanelStore = { get: getLootPanel, claim: claimLootPanel, save: saveLootPanel };
 
+db.exec(`CREATE TABLE IF NOT EXISTS wowaudit_raider_panels (
+  guild_id TEXT NOT NULL, channel_id TEXT NOT NULL, message_id TEXT,
+  status TEXT NOT NULL, last_slot TEXT,
+  PRIMARY KEY (guild_id, channel_id)
+)`);
+export function getRaiderPanel(guildId, channelId) {
+  return db.prepare('SELECT message_id, status, last_slot FROM wowaudit_raider_panels WHERE guild_id=? AND channel_id=?').get(guildId, channelId) || null;
+}
+export function claimRaiderPanel(guildId, channelId, missingMessageId = null) {
+  if (missingMessageId) {
+    return db.prepare("UPDATE wowaudit_raider_panels SET message_id=NULL, status='creating' WHERE guild_id=? AND channel_id=? AND message_id=? AND status='ready'")
+      .run(guildId, channelId, missingMessageId).changes === 1;
+  }
+  return db.prepare("INSERT OR IGNORE INTO wowaudit_raider_panels (guild_id, channel_id, status) VALUES (?, ?, 'creating')")
+    .run(guildId, channelId).changes === 1;
+}
+export function saveRaiderPanel(guildId, channelId, messageId, slot = null) {
+  db.prepare(`INSERT INTO wowaudit_raider_panels VALUES (?, ?, ?, 'ready', ?)
+    ON CONFLICT(guild_id, channel_id) DO UPDATE SET message_id=excluded.message_id, status='ready',
+    last_slot=COALESCE(excluded.last_slot, wowaudit_raider_panels.last_slot)`)
+    .run(guildId, channelId, messageId, slot);
+}
+export const raiderPanelStore = { get: getRaiderPanel, claim: claimRaiderPanel, save: saveRaiderPanel };
+
 
 db.exec(`CREATE TABLE IF NOT EXISTS wowaudit_loot_destinations (
   guild_id TEXT PRIMARY KEY, channel_id TEXT NOT NULL

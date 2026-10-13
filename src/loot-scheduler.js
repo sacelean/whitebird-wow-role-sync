@@ -1,5 +1,5 @@
-import { getLootConfig, fetchLootReport, weeklySlot, weeklyCutoff } from './wowaudit.js';
-import { lootPanelStore, getWowLinks, getLootDestination } from './database.js';
+import { getLootConfig, fetchLootReport, fetchRaiderTableReport, weeklySlot, weeklyCutoff } from './wowaudit.js';
+import { lootPanelStore, raiderPanelStore, getWowLinks, getLootDestination } from './database.js';
 import { updateLootPanel } from './loot-panel.js';
 
 export function startLootScheduler(client, guildId) {
@@ -18,8 +18,22 @@ export function startLootScheduler(client, guildId) {
     busy = true;
     try {
       const guild = await client.guilds.fetch(guildId);
-      const report = await fetchLootReport(config, getWowLinks(guildId), weeklyCutoff(slot));
-      await updateLootPanel(guild, { ...config, channelId }, report, lootPanelStore, slot);
+      const links = getWowLinks(guildId);
+      const end = weeklyCutoff(slot);
+      const failures = [];
+      try {
+        const report = await fetchLootReport(config, links, end);
+        await updateLootPanel(guild, { ...config, channelId }, report, lootPanelStore, slot);
+      } catch (error) {
+        failures.push(`loot: ${error.message}`);
+      }
+      try {
+        const report = await fetchRaiderTableReport(config, links, end);
+        await updateLootPanel(guild, { ...config, channelId }, report, raiderPanelStore, slot, 'resumen de raiders');
+      } catch (error) {
+        failures.push(`raiders: ${error.message}`);
+      }
+      if (failures.length) throw new Error(failures.join(' · '));
       completedKey = key;
     } catch (error) {
       console.error('Informe WoWAudit:', error.message);
