@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { auditGet, buildLootRanking, fetchLootReport, getLootConfig, weeklySlot, weeklyCutoff } from '../src/wowaudit.js';
+import { auditGet, buildLootRanking, fetchLootReport, getLootConfig, lootErrorMessage, weeklySlot, weeklyCutoff } from '../src/wowaudit.js';
 const fixture = JSON.parse(readFileSync(new URL('./fixtures/wowaudit.json',import.meta.url)));
 const roster = fixture['/v1/characters'];
 const history = fixture['/v1/loot_history/{id}'].history_items;
@@ -70,4 +70,12 @@ test('only Mythic Main and the three selected categories, keeping zero-loot main
  assert.equal(result.total,4); assert.equal(result.size,4);
  assert.equal(result.most[0].name,'Kormash'); assert.equal(result.least[0].count,0);
  assert.ok(!result.most.some(r=>r.name==='Trial'));
+});
+
+test('preview diagnostics expose only controlled errors, never arbitrary exception contents',()=>{
+ assert.equal(lootErrorMessage(new Error('secret-token')),'WoWAudit: error interno al generar o mostrar el informe.');
+ try { getLootConfig({WOWAUDIT_API_KEY:'secret-token'}); } catch(error) {
+  assert.match(lootErrorMessage(error),/Configura WOWAUDIT_API_KEY/);
+  assert.doesNotMatch(lootErrorMessage(error),/secret-token/);
+ }
 });

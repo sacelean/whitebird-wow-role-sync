@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { startLootScheduler } from './loot-scheduler.js';
-import { getLootConfig, fetchLootReport } from './wowaudit.js';
+import { getLootConfig, fetchLootReport, lootErrorMessage } from './wowaudit.js';
 import { randomUUID } from 'node:crypto';
 import {
   ActionRowBuilder,
@@ -504,8 +504,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
           content: content.replace('Informe semanal de loot registrado en WoWAudit', 'Vista previa de loot WoWAudit (hasta ahora)'),
           allowedMentions: { parse: [] }
         });
-      } catch {
-        return interaction.editReply('No se pudo generar la vista previa. Revisa la configuración de WoWAudit, los permisos de la API y su respuesta; no se ha publicado un ranking.');
+      } catch (error) {
+        const detail = lootErrorMessage(error);
+        console.error('Vista previa de loot:', detail);
+        return interaction.editReply({ content: `No se pudo generar la vista previa. ${detail}`, allowedMentions: { parse: [] } });
       }
     }
 

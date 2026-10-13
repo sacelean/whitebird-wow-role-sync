@@ -4,19 +4,23 @@ const identity = (name, realm) => `${key(name)}:${key(realm)}`;
 export const DEFAULT_LOOT_CATEGORIES = ['BIS', 'Mejora de stats', 'set 4p Catalizar'];
 const categoryKey = s => s.normalize('NFC').trim().toLocaleLowerCase('es-ES').replace(/\s+/g, ' ');
 const positiveId = (n) => Number.isSafeInteger(n) && n > 0;
-function requireSchema(ok) {
-  if (!ok) throw new Error('WoWAudit: respuesta incompatible; informe cancelado.');
+class WoWAuditError extends Error {}
+export function lootErrorMessage(error) {
+  return error instanceof WoWAuditError ? error.message : 'WoWAudit: error interno al generar o mostrar el informe.';
+}
+function requireSchema(ok, detail = 'respuesta incompatible') {
+  if (!ok) throw new WoWAuditError(`WoWAudit: ${detail}; informe cancelado.`);
 }
 
 export function getLootConfig(env = process.env) {
   if (!env.WOWAUDIT_API_KEY && !env.WOWAUDIT_LOOT_CHANNEL_ID) return null;
   if (!env.WOWAUDIT_API_KEY?.trim() || !/^\d{17,20}$/.test(env.WOWAUDIT_LOOT_CHANNEL_ID || '')) {
-    throw new Error('Configura WOWAUDIT_API_KEY y WOWAUDIT_LOOT_CHANNEL_ID.');
+    throw new WoWAuditError('Configura WOWAUDIT_API_KEY y WOWAUDIT_LOOT_CHANNEL_ID.');
   }
   const days = env.WOWAUDIT_LOOT_WINDOW_DAYS ? Number(env.WOWAUDIT_LOOT_WINDOW_DAYS) : null;
-  if (days !== null && (!Number.isInteger(days) || days < 1 || days > 3660)) throw new Error('WOWAUDIT_LOOT_WINDOW_DAYS debe estar entre 1 y 3660.');
+  if (days !== null && (!Number.isInteger(days) || days < 1 || days > 3660)) throw new WoWAuditError('WOWAUDIT_LOOT_WINDOW_DAYS debe estar entre 1 y 3660.');
   const categories = (env.WOWAUDIT_LOOT_CATEGORIES || DEFAULT_LOOT_CATEGORIES.join(',')).split(',').map(s => s.trim());
-  if (categories.some(s => !s || s.length > 100)) throw new Error('WOWAUDIT_LOOT_CATEGORIES no válido.');
+  if (categories.some(s => !s || s.length > 100)) throw new WoWAuditError('WOWAUDIT_LOOT_CATEGORIES no válido.');
   return { apiKey: env.WOWAUDIT_API_KEY.trim(), channelId: env.WOWAUDIT_LOOT_CHANNEL_ID, days, categories };
 
 }
@@ -30,20 +34,21 @@ export async function auditGet(path, apiKey, fetcher = fetch) {
         signal: AbortSignal.timeout(15_000), redirect: 'error'
       });
     } catch {
-      if (attempt === 2) throw new Error('WoWAudit: fallo de conexión o timeout.');
+      if (attempt === 2) throw new WoWAuditError('WoWAudit: fallo de conexión o timeout.');
       continue;
     }
     if (response.ok) {
-      try { return await response.json(); } catch { throw new Error('WoWAudit: JSON no válido.'); }
+      try { return await response.json(); } catch { throw new WoWAuditError('WoWAudit: JSON no válido.'); }
     }
-    if (![429, 500, 502, 503, 504].includes(response.status) || attempt === 2) throw new Error(`WoWAudit: HTTP ${response.status}.`);
+    if (![429, 500, 502, 503, 504].includes(response.status) || attempt === 2) throw new WoWAuditError(`WoWAudit: HTTP ${response.status}.`);
     const seconds = Number(response.headers.get('retry-after'));
     await new Promise(resolve => setTimeout(resolve, Number.isFinite(seconds) && seconds > 0 ? Math.min(seconds, 10) * 1000 : 1000 * (attempt + 1)));
   }
 }
 
 export function buildLootRanking(roster, history, links, { start, end, categories = DEFAULT_LOOT_CATEGORIES }) {
-  requireSchema(Array.isArray(roster) && Array.isArray(history));
+  requireSchema(Array.isArray(roster), '/v1/characters no devuelve un array');
+  requireSchema(Array.isArray(history), 'historial sin array history_items');
   const characters = new Map();
   const identities = new Map();
   for (const c of roster) {
@@ -60,7 +65,7 @@ export function buildLootRanking(roster, history, links, { start, end, categorie
     const matches = links.filter(l => identity(l.character_name, l.realm_slug) === identity(c.name, c.realm));
     return [c.id, { ...c, count: 0, userId: matches.length === 1 ? matches[0].user_id : null }];
   }));
-  requireSchema(rows.size > 0);
+  requireSchema(rows.size > 0, 'no hay personajes Main con status tracking en el roster');
   const ids = new Map(), imports = new Map();
   let outsideRoster = 0;
   for (const item of history) {
@@ -91,7 +96,7 @@ export function buildLootRanking(roster, history, links, { start, end, categorie
 export async function fetchLootReport(config, links, end = Date.now(), fetcher = fetch) {
   const period = await auditGet('/v1/period', config.apiKey, fetcher);
   const season = period?.current_season;
-  requireSchema(positiveId(season?.keystone_season_id) && typeof season.start_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(season.start_date));
+  requireSchema(positiveId(season?.keystone_season_id) && typeof season.start_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(season.start_date), '/v1/period sin temporada keystone o fecha de inicio válida');
   // WoWAudit provides a date without a timezone; use explicit UTC midnight.
   const seasonStart = Date.parse(`${season.start_date}T00:00:00Z`);
   requireSchema(Number.isFinite(seasonStart) && seasonStart < end);
@@ -110,7 +115,7 @@ export async function fetchLootReport(config, links, end = Date.now(), fetcher =
     `Empates: mismo puesto, orden por nombre/reino; máximo 5 por lista. Alts sin agrupar. Fuera del roster: ${ranking.outsideRoster} registros.`,
     'Solo adjudicaciones registradas, no descartadas (incluye respuestas excluidas). Cero significa sin registros válidos en este período; no acredita cobertura completa.'
   ].join('\n');
-  requireSchema(content.length <= 2000);
+  requireSchema(content.length <= 2000, 'el informe supera el límite de Discord');
   return content;
 }
 
