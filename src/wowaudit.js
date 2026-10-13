@@ -1,6 +1,8 @@
 // Contract: https://wowaudit.com/api (official embedded Swagger, verified 2026-10-13).
 const key = (s) => s.normalize('NFC').toLowerCase().replace(/[\s’']/g, '').replace(/-/g, '');
 const identity = (name, realm) => `${key(name)}:${key(realm)}`;
+export const DEFAULT_LOOT_CATEGORIES = ['BIS', 'Mejora de stats', 'set 4p Catalizar'];
+const categoryKey = s => s.normalize('NFC').trim().toLocaleLowerCase('es-ES').replace(/\s+/g, ' ');
 const positiveId = (n) => Number.isSafeInteger(n) && n > 0;
 function requireSchema(ok) {
   if (!ok) throw new Error('WoWAudit: respuesta incompatible; informe cancelado.');
@@ -13,9 +15,10 @@ export function getLootConfig(env = process.env) {
   }
   const days = env.WOWAUDIT_LOOT_WINDOW_DAYS ? Number(env.WOWAUDIT_LOOT_WINDOW_DAYS) : null;
   if (days !== null && (!Number.isInteger(days) || days < 1 || days > 3660)) throw new Error('WOWAUDIT_LOOT_WINDOW_DAYS debe estar entre 1 y 3660.');
-  const ranks = (env.WOWAUDIT_LOOT_RANKS || 'Main,Trial').split(',').map(s => s.trim());
-  if (!ranks.length || ranks.some(s => !['Main', 'Trial', 'Alt', 'Social'].includes(s))) throw new Error('WOWAUDIT_LOOT_RANKS no válido.');
-  return { apiKey: env.WOWAUDIT_API_KEY.trim(), channelId: env.WOWAUDIT_LOOT_CHANNEL_ID, days, ranks };
+  const categories = (env.WOWAUDIT_LOOT_CATEGORIES || DEFAULT_LOOT_CATEGORIES.join(',')).split(',').map(s => s.trim());
+  if (categories.some(s => !s || s.length > 100)) throw new Error('WOWAUDIT_LOOT_CATEGORIES no válido.');
+  return { apiKey: env.WOWAUDIT_API_KEY.trim(), channelId: env.WOWAUDIT_LOOT_CHANNEL_ID, days, categories };
+
 }
 
 export async function auditGet(path, apiKey, fetcher = fetch) {
@@ -39,7 +42,7 @@ export async function auditGet(path, apiKey, fetcher = fetch) {
   }
 }
 
-export function buildLootRanking(roster, history, links, { start, end, ranks }) {
+export function buildLootRanking(roster, history, links, { start, end, categories = DEFAULT_LOOT_CATEGORIES }) {
   requireSchema(Array.isArray(roster) && Array.isArray(history));
   const characters = new Map();
   const identities = new Map();
@@ -53,7 +56,7 @@ export function buildLootRanking(roster, history, links, { start, end, ranks }) 
     requireSchema(!identities.has(nameKey));
     characters.set(c.id, c); identities.set(nameKey, c.id);
   }
-  const rows = new Map([...characters.values()].filter(c => c.status === 'tracking' && ranks.includes(c.rank)).map(c => {
+  const rows = new Map([...characters.values()].filter(c => c.status === 'tracking' && c.rank === 'Main').map(c => {
     const matches = links.filter(l => identity(l.character_name, l.realm_slug) === identity(c.name, c.realm));
     return [c.id, { ...c, count: 0, userId: matches.length === 1 ? matches[0].user_id : null }];
   }));
@@ -62,7 +65,8 @@ export function buildLootRanking(roster, history, links, { start, end, ranks }) 
   let outsideRoster = 0;
   for (const item of history) {
     requireSchema(positiveId(item.id) && positiveId(item.character_id) && positiveId(item.item_id) && typeof item.discarded === 'boolean' && typeof item.awarded_at === 'string' && Number.isFinite(Date.parse(item.awarded_at)));
-    const signature = JSON.stringify([item.character_id, item.item_id, item.awarded_at, item.discarded]);
+    requireSchema(typeof item.difficulty === 'string' && (item.response_type === null || typeof item.response_type?.name === 'string'));
+    const signature = JSON.stringify([item.character_id, item.item_id, item.awarded_at, item.discarded, item.difficulty, item.response_type?.name]);
     if (ids.has(item.id)) { requireSchema(ids.get(item.id) === signature); continue; }
     ids.set(item.id, signature);
     if (item.rclootcouncil_id) {
@@ -71,7 +75,8 @@ export function buildLootRanking(roster, history, links, { start, end, ranks }) 
       imports.set(item.rclootcouncil_id, signature);
     }
     const time = Date.parse(item.awarded_at);
-    if (item.discarded || time < start || time >= end) continue;
+    if (item.discarded || time < start || time >= end || item.difficulty.toLowerCase() !== 'mythic' ||
+        !item.response_type || !categories.some(c => categoryKey(c) === categoryKey(item.response_type.name))) continue;
     if (rows.has(item.character_id)) rows.get(item.character_id).count++;
     else outsideRoster++;
   }
@@ -93,13 +98,14 @@ export async function fetchLootReport(config, links, end = Date.now(), fetcher =
   const start = Math.max(seasonStart, config.days ? end - config.days * 86400000 : seasonStart);
   const roster = await auditGet('/v1/characters', config.apiKey, fetcher);
   const loot = await auditGet(`/v1/loot_history/${season.keystone_season_id}`, config.apiKey, fetcher);
-  const ranking = buildLootRanking(roster, loot?.history_items, links, { start, end, ranks: config.ranks });
+  const ranking = buildLootRanking(roster, loot?.history_items, links, { start, end, categories: config.categories });
   const safe = s => s.replace(/[\\*_`~|<>@]/g, '').replace(/[\r\n]/g,' ').slice(0,30);
   const section = (title, rows) => [title, ...rows.map(r => `${r.position}. ${safe(r.name)} · ${safe(r.realm)}${r.userId ? ` (<@${r.userId}>)` : ''}: **${r.count}**${r.cutTie ? ' (empate en el corte)' : ''}`)].join('\n');
   const content = [
     '**Informe semanal de loot registrado en WoWAudit — por personaje**',
     `Temporada keystone ${season.keystone_season_id}; [${new Date(start).toISOString()}, ${new Date(end).toISOString()}) UTC.`,
-    `Roster actual en seguimiento: ${config.ranks.join(', ')} · ${ranking.size} personajes · ${ranking.total} objetos.`,
+    `Roster actual en seguimiento: Main · ${ranking.size} personajes · ${ranking.total} objetos.`,
+    `Filtros: Mythic · categorías: ${config.categories.map(safe).join(', ')}.`,
     section('**5 con más loot**', ranking.most), section('**5 con menos loot**', ranking.least),
     `Empates: mismo puesto, orden por nombre/reino; máximo 5 por lista. Alts sin agrupar. Fuera del roster: ${ranking.outsideRoster} registros.`,
     'Solo adjudicaciones registradas, no descartadas (incluye respuestas excluidas). Cero significa sin registros válidos en este período; no acredita cobertura completa.'

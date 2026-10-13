@@ -5,7 +5,7 @@ import { auditGet, buildLootRanking, fetchLootReport, getLootConfig, weeklySlot,
 const fixture = JSON.parse(readFileSync(new URL('./fixtures/wowaudit.json',import.meta.url)));
 const roster = fixture['/v1/characters'];
 const history = fixture['/v1/loot_history/{id}'].history_items;
-const options = { start:Date.parse('2024-10-01T00:00Z'),end:Date.parse('2024-10-02T00:00Z'),ranks:['Main','Trial'] };
+const options = { start:Date.parse('2024-10-01T00:00Z'),end:Date.parse('2024-10-02T00:00Z'),categories:['Main','Minor'] };
 test('official example: recipient, zeros, stable ties, duplicate imports and discarded awards',()=>{
  const result = buildLootRanking(roster,[...history,history[0],{...history[0],id:99},{...history[0],id:100,rclootcouncil_id:'other',discarded:true}], [{character_name:'kormash',realm_slug:'stormrage',user_id:'123'}],options);
  assert.equal(result.total,2); assert.equal(result.most[0].name,'Kormash'); assert.equal(result.most[0].userId,'123');
@@ -15,7 +15,7 @@ test('time boundaries, tracked ranks and alts stay separate',()=>{
  const alt = {...roster[0],id:9,name:'Alt',rank:'Alt'};
  const result = buildLootRanking([...roster,alt],[{...history[0],awarded_at:new Date(options.end).toISOString()}],[],options);
  assert.equal(result.size,4); assert.equal(result.total,0);
- assert.equal(buildLootRanking([...roster,alt],[],[],{...options,ranks:['Main','Alt']}).size,5);
+ assert.equal(buildLootRanking([...roster,alt],[],[],options).size,4);
 });
 test('reject malformed responses and conflicting duplicates',()=>{
  assert.throws(()=>buildLootRanking(roster,undefined,[],options));
@@ -46,7 +46,7 @@ test('verified paths, keystone season, Bearer header and window',async()=>{
   const data = p==='/v1/loot_history/11'?fixture['/v1/loot_history/{id}']:fixture[p];
   return {ok:true,json:async()=>data};
  };
- const content=await fetchLootReport({apiKey:'private',days:1,ranks:['Main']},[],options.end,fetcher);
+ const content=await fetchLootReport({apiKey:'private',days:1,categories:['Main','Minor']},[],options.end,fetcher);
  assert.deepEqual(calls.map(u=>new URL(u).pathname),['/v1/period','/v1/characters','/v1/loot_history/11']);
  assert.match(content,/Kormash/); assert.match(content,/2024-10-01T00:00:00.000Z/); assert.doesNotMatch(content,/private/);
 });
@@ -57,4 +57,17 @@ test('HTTP authorization errors never leak body or key',async()=>{
 test('fixed cutoff is Madrid 20:00 in summer and winter',()=>{
  assert.equal(new Date(weeklyCutoff('2026-07-01')).toISOString(),'2026-07-01T18:00:00.000Z');
  assert.equal(new Date(weeklyCutoff('2026-10-28')).toISOString(),'2026-10-28T19:00:00.000Z');
+});
+
+test('only Mythic Main and the three selected categories, keeping zero-loot mains',()=>{
+ const trial={...roster[0], id:9, name:'Trial', rank:'Trial'};
+ const award=(id,category,difficulty='mythic',character_id=2)=>({...history[0],id,rclootcouncil_id:`import-${id}`,difficulty,character_id,response_type:category===null?null:{name:category}});
+ const result=buildLootRanking([...roster,trial],[
+  award(11,'BIS'),award(12,'Mejora de stats'),award(13,'set 4p Catalizar'),
+  award(14,' bis '),award(15,'Mejora de stats','heroic'),award(16,'Offspec'),
+  award(17,'BIS','mythic',9),award(18,null),award(19,'BIS extra'),
+ ],[],{start:options.start,end:options.end});
+ assert.equal(result.total,4); assert.equal(result.size,4);
+ assert.equal(result.most[0].name,'Kormash'); assert.equal(result.least[0].count,0);
+ assert.ok(!result.most.some(r=>r.name==='Trial'));
 });
