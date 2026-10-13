@@ -74,7 +74,10 @@ export function buildLootRanking(roster, history, links, { start, end, categorie
   for (const item of history) {
     requireSchema(positiveId(item.id) && positiveId(item.character_id) && positiveId(item.item_id) && typeof item.discarded === 'boolean' && typeof item.awarded_at === 'string' && Number.isFinite(Date.parse(item.awarded_at)));
     requireSchema(typeof item.difficulty === 'string' && (item.response_type === null || typeof item.response_type?.name === 'string'));
-    const signature = JSON.stringify([item.character_id, item.item_id, item.awarded_at, item.discarded, item.difficulty, item.response_type?.name]);
+    // The website counts merged categories, not the original RCLootCouncil button.
+    const response = item.response_type?.propagated_to ?? item.response_type;
+    requireSchema(response === null || typeof response?.name === 'string', 'categoría fusionada sin nombre válido');
+    const signature = JSON.stringify([item.character_id, item.item_id, item.awarded_at, item.discarded, item.difficulty, item.response_type?.name, response?.name]);
     if (ids.has(item.id)) { requireSchema(ids.get(item.id) === signature); continue; }
     ids.set(item.id, signature);
     if (item.rclootcouncil_id) {
@@ -84,7 +87,7 @@ export function buildLootRanking(roster, history, links, { start, end, categorie
     }
     const time = Date.parse(item.awarded_at);
     if (item.discarded || time < start || time >= end || item.difficulty.toLowerCase() !== 'mythic' ||
-        !item.response_type || !categories.some(c => categoryKey(c) === categoryKey(item.response_type.name))) continue;
+        !response || !categories.some(c => categoryKey(c) === categoryKey(response.name))) continue;
     if (rows.has(item.character_id)) rows.get(item.character_id).count++;
     else outsideRoster++;
   }

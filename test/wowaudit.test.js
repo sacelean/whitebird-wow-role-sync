@@ -5,7 +5,7 @@ import { auditGet, buildLootRanking, fetchLootReport, getLootConfig, lootErrorMe
 const fixture = JSON.parse(readFileSync(new URL('./fixtures/wowaudit.json',import.meta.url)));
 const roster = fixture['/v1/characters'];
 const history = fixture['/v1/loot_history/{id}'].history_items;
-const options = { start:Date.parse('2024-10-01T00:00Z'),end:Date.parse('2024-10-02T00:00Z'),categories:['Main','Minor'],ranks:['Main'] };
+const options = { start:Date.parse('2024-10-01T00:00Z'),end:Date.parse('2024-10-02T00:00Z'),categories:['Major','Minor'],ranks:['Main'] };
 test('official example: recipient, zeros, stable ties, duplicate imports and discarded awards',()=>{
  const result = buildLootRanking(roster,[...history,history[0],{...history[0],id:99},{...history[0],id:100,rclootcouncil_id:'other',discarded:true}], [{character_name:'kormash',realm_slug:'stormrage',user_id:'123'}],options);
  assert.equal(result.total,2); assert.equal(result.most[0].name,'Kormash'); assert.equal(result.most[0].userId,'123');
@@ -46,7 +46,7 @@ test('verified paths, keystone season, Bearer header and window',async()=>{
   const data = p==='/v1/loot_history/11'?fixture['/v1/loot_history/{id}']:fixture[p];
   return {ok:true,json:async()=>data};
  };
- const content=await fetchLootReport({apiKey:'private',days:1,categories:['Main','Minor'],ranks:['Main']},[],options.end,fetcher);
+ const content=await fetchLootReport({apiKey:'private',days:1,categories:['Major','Minor'],ranks:['Main']},[],options.end,fetcher);
  assert.deepEqual(calls.map(u=>new URL(u).pathname),['/v1/period','/v1/characters','/v1/loot_history/11']);
  assert.match(content,/Kormash/); assert.match(content,/2024-10-01T00:00:00.000Z/); assert.doesNotMatch(content,/private/);
 });
@@ -84,7 +84,7 @@ test('preview diagnostics expose only controlled errors, never arbitrary excepti
 test('live period without keystone ID uses verified WoWAudit season id 18',async()=>{
  const livePeriod=JSON.parse(readFileSync(new URL('./fixtures/wowaudit-period-live.json',import.meta.url)));
  const paths=[];
- const content=await fetchLootReport({apiKey:'private',categories:['Main','Minor'],ranks:['Main']},[],Date.parse('2026-10-13T18:00Z'),async(url)=>{
+ const content=await fetchLootReport({apiKey:'private',categories:['Major','Minor'],ranks:['Main']},[],Date.parse('2026-10-13T18:00Z'),async(url)=>{
   const path=new URL(url).pathname; paths.push(path);
   const data=path==='/v1/period'?livePeriod:path==='/v1/characters'?roster:{history_items:[]};
   return {ok:true,json:async()=>data};
@@ -117,4 +117,22 @@ test('rank configuration defaults to the verified ranks and rejects empty entrie
  const env={WOWAUDIT_API_KEY:'test',WOWAUDIT_LOOT_CHANNEL_ID:'123456789012345678'};
  assert.deepEqual(getLootConfig(env).ranks,['Oficiales','Fijo','Rotativo']);
  assert.throws(()=>getLootConfig({...env,WOWAUDIT_LOOT_RANKS:'Fijo,'}),/WOWAUDIT_LOOT_RANKS/);
+});
+
+test('merged categories count their final label exactly once, matching the website',()=>{
+ const award=(id,name,propagated_to)=>({...history[0],id,rclootcouncil_id:`merged-${id}`,response_type:{name,propagated_to}});
+ const result=buildLootRanking(roster,[
+  award(101,'Necesidad',{name:'BIS'}),
+  award(102,'Mejora grande',{name:'Mejora de stats'}),
+  award(103,'BIS',{name:'OFF SPEC'}),
+  award(104,'BIS',null),
+  award(105,'Catalizar',null),
+  award(106,'set 4p',null),
+ ],[],{start:options.start,end:options.end,ranks:['Main']});
+ assert.equal(result.total,5); assert.equal(result.most[0].count,5);
+ assert.equal(result.least[0].count,0);
+});
+test('conflicting duplicate category mappings cancel the report',()=>{
+ const original={...history[0],response_type:{name:'Necesidad',propagated_to:{name:'BIS'}}};
+ assert.throws(()=>buildLootRanking(roster,[original,{...original,response_type:{name:'Necesidad',propagated_to:{name:'OFF SPEC'}}}],[],options));
 });
