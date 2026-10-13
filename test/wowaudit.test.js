@@ -5,7 +5,7 @@ import { auditGet, buildLootRanking, fetchLootReport, getLootConfig, lootErrorMe
 const fixture = JSON.parse(readFileSync(new URL('./fixtures/wowaudit.json',import.meta.url)));
 const roster = fixture['/v1/characters'];
 const history = fixture['/v1/loot_history/{id}'].history_items;
-const options = { start:Date.parse('2024-10-01T00:00Z'),end:Date.parse('2024-10-02T00:00Z'),categories:['Main','Minor'] };
+const options = { start:Date.parse('2024-10-01T00:00Z'),end:Date.parse('2024-10-02T00:00Z'),categories:['Main','Minor'],ranks:['Main'] };
 test('official example: recipient, zeros, stable ties, duplicate imports and discarded awards',()=>{
  const result = buildLootRanking(roster,[...history,history[0],{...history[0],id:99},{...history[0],id:100,rclootcouncil_id:'other',discarded:true}], [{character_name:'kormash',realm_slug:'stormrage',user_id:'123'}],options);
  assert.equal(result.total,2); assert.equal(result.most[0].name,'Kormash'); assert.equal(result.most[0].userId,'123');
@@ -46,7 +46,7 @@ test('verified paths, keystone season, Bearer header and window',async()=>{
   const data = p==='/v1/loot_history/11'?fixture['/v1/loot_history/{id}']:fixture[p];
   return {ok:true,json:async()=>data};
  };
- const content=await fetchLootReport({apiKey:'private',days:1,categories:['Main','Minor']},[],options.end,fetcher);
+ const content=await fetchLootReport({apiKey:'private',days:1,categories:['Main','Minor'],ranks:['Main']},[],options.end,fetcher);
  assert.deepEqual(calls.map(u=>new URL(u).pathname),['/v1/period','/v1/characters','/v1/loot_history/11']);
  assert.match(content,/Kormash/); assert.match(content,/2024-10-01T00:00:00.000Z/); assert.doesNotMatch(content,/private/);
 });
@@ -67,7 +67,7 @@ test('only Mythic Main and the four selected categories, keeping zero-loot mains
   award(14,' bis '),award(15,'Mejora de stats','heroic'),award(16,'Offspec'),
   award(17,'BIS','mythic',9),award(18,null),award(19,'BIS extra'),
   award(20,'Catalizar'),award(21,'set 4p Catalizar'),
- ],[],{start:options.start,end:options.end});
+ ],[],{start:options.start,end:options.end,ranks:['Main']});
  assert.equal(result.total,5); assert.equal(result.size,4);
  assert.equal(result.most[0].name,'Kormash'); assert.equal(result.least[0].count,0);
  assert.ok(!result.most.some(r=>r.name==='Trial'));
@@ -84,7 +84,7 @@ test('preview diagnostics expose only controlled errors, never arbitrary excepti
 test('live period without keystone ID uses verified WoWAudit season id 18',async()=>{
  const livePeriod=JSON.parse(readFileSync(new URL('./fixtures/wowaudit-period-live.json',import.meta.url)));
  const paths=[];
- const content=await fetchLootReport({apiKey:'private',categories:['Main','Minor']},[],Date.parse('2026-10-13T18:00Z'),async(url)=>{
+ const content=await fetchLootReport({apiKey:'private',categories:['Main','Minor'],ranks:['Main']},[],Date.parse('2026-10-13T18:00Z'),async(url)=>{
   const path=new URL(url).pathname; paths.push(path);
   const data=path==='/v1/period'?livePeriod:path==='/v1/characters'?roster:{history_items:[]};
   return {ok:true,json:async()=>data};
@@ -98,4 +98,23 @@ test('invalid legacy season identifier is rejected rather than falling back sile
   calls++; return {ok:true,json:async()=>({current_season:{id:18,keystone_season_id:'invalid',start_date:'2026-08-11'}})};
  }),/identificador de temporada/);
  assert.equal(calls,1);
+});
+
+test('real Whitebird rank distribution includes 23 tracked characters and excludes seven trials',()=>{
+ const tracked=[];
+ for(const [rank,count] of [['Oficiales',3],['Fijo',17],['Rotativo',3],['Trial',7]]) {
+  for(let i=0;i<count;i++) tracked.push({...roster[0],id:tracked.length+1,name:`Character${tracked.length}`,rank});
+ }
+ tracked.push({...roster[0],id:31,name:'Inactive',rank:'Fijo',status:'pending'});
+ const loot=[...history.map((item,i)=>({...item,id:i+1,rclootcouncil_id:`live-${i}`,character_id:i===0?1:24,response_type:{name:'BIS'}}))];
+ const result=buildLootRanking(tracked,loot,[],{start:options.start,end:options.end});
+ assert.equal(result.size,23); assert.equal(result.total,1); assert.equal(result.least[0].count,0);
+ assert.ok([...result.most,...result.least].every(c=>c.rank!=='Trial'));
+ const configured=buildLootRanking(tracked,loot,[],{start:options.start,end:options.end,ranks:[' fijo ']});
+ assert.equal(configured.size,17);
+});
+test('rank configuration defaults to the verified ranks and rejects empty entries',()=>{
+ const env={WOWAUDIT_API_KEY:'test',WOWAUDIT_LOOT_CHANNEL_ID:'123456789012345678'};
+ assert.deepEqual(getLootConfig(env).ranks,['Oficiales','Fijo','Rotativo']);
+ assert.throws(()=>getLootConfig({...env,WOWAUDIT_LOOT_RANKS:'Fijo,'}),/WOWAUDIT_LOOT_RANKS/);
 });

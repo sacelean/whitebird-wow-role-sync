@@ -1,6 +1,7 @@
 // Contract: https://wowaudit.com/api (official embedded Swagger, verified 2026-10-13).
 const key = (s) => s.normalize('NFC').toLowerCase().replace(/[\s’']/g, '').replace(/-/g, '');
 const identity = (name, realm) => `${key(name)}:${key(realm)}`;
+export const DEFAULT_LOOT_RANKS = ['Oficiales', 'Fijo', 'Rotativo'];
 export const DEFAULT_LOOT_CATEGORIES = ['BIS', 'Mejora de stats', 'set 4p', 'Catalizar'];
 const categoryKey = s => s.normalize('NFC').trim().toLocaleLowerCase('es-ES').replace(/\s+/g, ' ');
 const positiveId = (n) => Number.isSafeInteger(n) && n > 0;
@@ -21,7 +22,9 @@ export function getLootConfig(env = process.env) {
   if (days !== null && (!Number.isInteger(days) || days < 1 || days > 3660)) throw new WoWAuditError('WOWAUDIT_LOOT_WINDOW_DAYS debe estar entre 1 y 3660.');
   const categories = (env.WOWAUDIT_LOOT_CATEGORIES || DEFAULT_LOOT_CATEGORIES.join(',')).split(',').map(s => s.trim());
   if (categories.some(s => !s || s.length > 100)) throw new WoWAuditError('WOWAUDIT_LOOT_CATEGORIES no válido.');
-  return { apiKey: env.WOWAUDIT_API_KEY.trim(), channelId: env.WOWAUDIT_LOOT_CHANNEL_ID, days, categories };
+  const ranks = (env.WOWAUDIT_LOOT_RANKS || DEFAULT_LOOT_RANKS.join(',')).split(',').map(s => s.trim());
+  if (ranks.length > 10 || ranks.some(s => !s || s.length > 100)) throw new WoWAuditError('WOWAUDIT_LOOT_RANKS no válido.');
+  return { apiKey: env.WOWAUDIT_API_KEY.trim(), channelId: env.WOWAUDIT_LOOT_CHANNEL_ID, days, categories, ranks };
 
 }
 
@@ -46,7 +49,7 @@ export async function auditGet(path, apiKey, fetcher = fetch) {
   }
 }
 
-export function buildLootRanking(roster, history, links, { start, end, categories = DEFAULT_LOOT_CATEGORIES }) {
+export function buildLootRanking(roster, history, links, { start, end, categories = DEFAULT_LOOT_CATEGORIES, ranks = DEFAULT_LOOT_RANKS }) {
   requireSchema(Array.isArray(roster), '/v1/characters no devuelve un array');
   requireSchema(Array.isArray(history), 'historial sin array history_items');
   const characters = new Map();
@@ -61,11 +64,11 @@ export function buildLootRanking(roster, history, links, { start, end, categorie
     requireSchema(!identities.has(nameKey));
     characters.set(c.id, c); identities.set(nameKey, c.id);
   }
-  const rows = new Map([...characters.values()].filter(c => c.status === 'tracking' && c.rank === 'Main').map(c => {
+  const rows = new Map([...characters.values()].filter(c => c.status === 'tracking' && ranks.some(rank => categoryKey(rank) === categoryKey(c.rank))).map(c => {
     const matches = links.filter(l => identity(l.character_name, l.realm_slug) === identity(c.name, c.realm));
     return [c.id, { ...c, count: 0, userId: matches.length === 1 ? matches[0].user_id : null }];
   }));
-  requireSchema(rows.size > 0, 'no hay personajes Main con status tracking en el roster');
+  requireSchema(rows.size > 0, 'no hay personajes con los rangos configurados y status tracking en el roster; revisa WOWAUDIT_LOOT_RANKS');
   const ids = new Map(), imports = new Map();
   let outsideRoster = 0;
   for (const item of history) {
@@ -106,13 +109,13 @@ export async function fetchLootReport(config, links, end = Date.now(), fetcher =
   const start = Math.max(seasonStart, config.days ? end - config.days * 86400000 : seasonStart);
   const roster = await auditGet('/v1/characters', config.apiKey, fetcher);
   const loot = await auditGet(`/v1/loot_history/${seasonId}`, config.apiKey, fetcher);
-  const ranking = buildLootRanking(roster, loot?.history_items, links, { start, end, categories: config.categories });
+  const ranking = buildLootRanking(roster, loot?.history_items, links, { start, end, categories: config.categories, ranks: config.ranks });
   const safe = s => s.replace(/[\\*_`~|<>@]/g, '').replace(/[\r\n]/g,' ').slice(0,30);
   const section = (title, rows) => [title, ...rows.map(r => `${r.position}. ${safe(r.name)} · ${safe(r.realm)}${r.userId ? ` (<@${r.userId}>)` : ''}: **${r.count}**${r.cutTie ? ' (empate en el corte)' : ''}`)].join('\n');
   const content = [
     '**Informe semanal de loot registrado en WoWAudit — por personaje**',
     `Temporada WoWAudit ${seasonId}; [${new Date(start).toISOString()}, ${new Date(end).toISOString()}) UTC.`,
-    `Roster actual en seguimiento: Main · ${ranking.size} personajes · ${ranking.total} objetos.`,
+    `Roster actual en seguimiento: ${(config.ranks || DEFAULT_LOOT_RANKS).map(safe).join(', ')} · ${ranking.size} personajes · ${ranking.total} objetos.`,
     `Filtros: Mythic · categorías: ${config.categories.map(safe).join(', ')}.`,
     section('**5 con más loot**', ranking.most), section('**5 con menos loot**', ranking.least),
     `Empates: mismo puesto, orden por nombre/reino; máximo 5 por lista. Alts sin agrupar. Fuera del roster: ${ranking.outsideRoster} registros.`,
