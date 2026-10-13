@@ -35,8 +35,8 @@ test('Madrid Wednesday at 20:00 across DST, not host timezone',()=>{
 });
 test('optional config validates before requests',()=>{
  assert.equal(getLootConfig({}),null);
- assert.throws(()=>getLootConfig({WOWAUDIT_LOOT_CHANNEL_ID:'123456789012345678'}));
- assert.throws(()=>getLootConfig({WOWAUDIT_API_KEY:'secret',WOWAUDIT_LOOT_CHANNEL_ID:'123456789012345678',WOWAUDIT_LOOT_WINDOW_DAYS:'0'}));
+ assert.equal(getLootConfig({WOWAUDIT_API_KEY:'  '}),null);
+ assert.throws(()=>getLootConfig({WOWAUDIT_API_KEY:'secret',WOWAUDIT_LOOT_WINDOW_DAYS:'0'}));
 });
 test('verified paths, keystone season, Bearer header and window',async()=>{
  const calls=[];
@@ -75,8 +75,8 @@ test('only Mythic Main and the four selected categories, keeping zero-loot mains
 
 test('preview diagnostics expose only controlled errors, never arbitrary exception contents',()=>{
  assert.equal(lootErrorMessage(new Error('secret-token')),'WoWAudit: error interno al generar o mostrar el informe.');
- try { getLootConfig({WOWAUDIT_LOOT_CHANNEL_ID:'secret-token'}); } catch(error) {
-  assert.match(lootErrorMessage(error),/Configura WOWAUDIT_API_KEY/);
+ try { getLootConfig({WOWAUDIT_API_KEY:'secret-token',WOWAUDIT_LOOT_WINDOW_DAYS:'0'}); } catch(error) {
+  assert.match(lootErrorMessage(error),/WOWAUDIT_LOOT_WINDOW_DAYS/);
   assert.doesNotMatch(lootErrorMessage(error),/secret-token/);
  }
 });
@@ -114,7 +114,7 @@ test('real Whitebird rank distribution includes 23 tracked characters and exclud
  assert.equal(configured.size,17);
 });
 test('rank configuration defaults to the verified ranks and rejects empty entries',()=>{
- const env={WOWAUDIT_API_KEY:'test',WOWAUDIT_LOOT_CHANNEL_ID:'123456789012345678'};
+ const env={WOWAUDIT_API_KEY:'test'};
  assert.deepEqual(getLootConfig(env).ranks,['Oficiales','Fijo','Rotativo']);
  assert.throws(()=>getLootConfig({...env,WOWAUDIT_LOOT_RANKS:'Fijo,'}),/WOWAUDIT_LOOT_RANKS/);
 });
@@ -146,10 +146,9 @@ test('report renders all 23 rows in one message with Discord embed limits and no
  assert.ok(report.embeds[0].fields.every(f=>f.value.length<=1024));
  assert.deepEqual(report.allowedMentions,{parse:[]});
 });
-test('WoWAudit allows selecting the destination by command and optional env fallback',()=>{
- assert.equal(getLootConfig({WOWAUDIT_API_KEY:'test'}).channelId,null);
- assert.equal(getLootConfig({WOWAUDIT_API_KEY:'test',WOWAUDIT_LOOT_CHANNEL_NAME:'ignored'}).channelId,null);
- assert.throws(()=>getLootConfig({WOWAUDIT_API_KEY:'test',WOWAUDIT_LOOT_CHANNEL_ID:'invalid'}),/WOWAUDIT_LOOT_CHANNEL_ID/);
- const config=getLootConfig({WOWAUDIT_API_KEY:'test',WOWAUDIT_LOOT_CHANNEL_ID:'123456789012345678'});
- assert.equal(config.channelId,'123456789012345678'); assert.equal(config.channelName,undefined);
+test('API configuration has no destination; only the command stores a channel',()=>{
+ const config=getLootConfig({WOWAUDIT_API_KEY:'test'});
+ assert.equal(config.apiKey,'test');
+ assert.equal(Object.hasOwn(config,'channelId'),false);
+ assert.equal(Object.hasOwn(config,'channelName'),false);
 });

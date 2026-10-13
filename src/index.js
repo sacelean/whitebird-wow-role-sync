@@ -497,23 +497,19 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return interaction.reply({ content: 'Este bot solo está configurado para su servidor de Whitebird.', flags: MessageFlags.Ephemeral });
     }
 
-    if (['wow-loot-probar', 'wow-loot-actualizar'].includes(interaction.commandName)) {
+    if (interaction.commandName === 'wow-loot-actualizar') {
       if (!isOfficer(interaction)) return interaction.reply(unauthorizedReply());
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       try {
         const config = getLootConfig();
         if (!config) return interaction.editReply('WoWAudit está desactivado. Configura WOWAUDIT_API_KEY en el servidor.');
-        const publishing = interaction.commandName === 'wow-loot-actualizar';
-        const selectedChannel = publishing ? interaction.options.getChannel('canal') : null;
-        const channelId = selectedChannel?.id || getLootDestination(guildId) || config.channelId;
-        if (publishing && !channelId) return interaction.editReply('Elige el destino con `/wow-loot-actualizar canal:#tu-canal`. Se guardará para las siguientes actualizaciones.');
+        const selectedChannel = interaction.options.getChannel('canal');
+        const channelId = selectedChannel?.id || getLootDestination(guildId);
+        if (!channelId) return interaction.editReply('Elige el destino con `/wow-loot-actualizar canal:#tu-canal`. Se guardará para las siguientes actualizaciones.');
         const report = await fetchLootReport(config, getWowLinks(guildId), Date.now());
-        if (publishing) {
-          const panel = await updateLootPanel(interaction.guild, { ...config, channelId }, report, lootPanelStore);
-          setLootDestination(guildId, panel.channelId);
-          return interaction.editReply({ content: `Informe actualizado: https://discord.com/channels/${guildId}/${panel.channelId}/${panel.messageId}`, allowedMentions: { parse: [] } });
-        }
-        return interaction.editReply({ ...report, embeds: report.embeds.map(embed => ({ ...embed, title: 'Vista previa — roster completo (hasta ahora)' })) });
+        const panel = await updateLootPanel(interaction.guild, { ...config, channelId }, report, lootPanelStore);
+        setLootDestination(guildId, panel.channelId);
+        return interaction.editReply({ content: `Informe actualizado: https://discord.com/channels/${guildId}/${panel.channelId}/${panel.messageId}`, allowedMentions: { parse: [] } });
 
       } catch (error) {
         const detail = error?.name === 'LootPanelError' ? error.message : lootErrorMessage(error);

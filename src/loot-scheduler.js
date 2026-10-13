@@ -9,10 +9,10 @@ export function startLootScheduler(client, guildId) {
   let busy = false;
   let retryAfter = 0;
   let completedKey = null;
-  if (!getLootDestination(guildId) && !config.channelId) console.warn('Elige un canal para el informe semanal con /wow-loot-actualizar canal:#tu-canal.');
+  if (!getLootDestination(guildId)) console.warn('Elige un canal para el informe semanal con /wow-loot-actualizar canal:#tu-canal.');
   async function tick() {
     const slot = weeklySlot();
-    const channelId = getLootDestination(guildId) || config.channelId;
+    const channelId = getLootDestination(guildId);
     const key = `${slot}:${channelId}`;
     if (!slot || !channelId || busy || key === completedKey || Date.now() < retryAfter) return;
     busy = true;

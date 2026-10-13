@@ -12,9 +12,6 @@ const commands = [
     .setDescription('Publica o actualiza el mensaje completo de loot (oficiales)')
     .addChannelOption(option => option.setName('canal').setDescription('Destino que se guardará también para los informes semanales').addChannelTypes(ChannelType.GuildText).setRequired(false)),
   new SlashCommandBuilder()
-    .setName('wow-loot-probar')
-    .setDescription('Vista previa privada del loot Mythic del roster en WoWAudit (oficiales)'),
-  new SlashCommandBuilder()
     .setName('wow-vincular-auto')
     .setDescription('Busca tu main de WoW comparando tu nombre con el roster de Blizzard'),
   new SlashCommandBuilder()
