@@ -174,3 +174,11 @@ El registro requiere `DISCORD_CLIENT_ID`, `DISCORD_GUILD_ID` y `DISCORD_TOKEN` e
 La categoría **set 4p** es independiente de **Catalizar**. Si tu `.env` ya contiene el antiguo valor `set 4p Catalizar`, cámbialo a `WOWAUDIT_LOOT_CATEGORIES=BIS,Mejora de stats,set 4p,Catalizar` y recrea el contenedor para cargarlo.
 
 El sitio web puede agrupar loot de alts por propietario; este bot sigue contando por personaje y solo para el roster/rangos seleccionados. Al contrastar resultados, comprueba ese alcance además de dificultad, categorías y período. La API devuelve la respuesta original del botón RCLootCouncil en `response_type` y su destino de fusión en `propagated_to`; filtrar solo el nombre original puede omitir adjudicaciones que la web muestra en BIS o Mejora de stats.
+
+Para comprobar el estado guardado y los permisos **sin enviar ni editar mensajes ni modificar SQLite**, tras desplegar esta versión:
+
+```sh
+docker compose exec -T bot node src/loot-inspect.js
+```
+
+La inspección abre SQLite en modo de solo lectura y hace consultas GET a Discord. Muestra IDs/estado del panel, permisos actuales y si el mensaje guardado pertenece al bot. No demuestra por sí sola la causa de un fallo pasado; se contrasta con los logs originales. No muestra tokens ni contenido de mensajes.
