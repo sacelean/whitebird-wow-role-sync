@@ -118,3 +118,52 @@ npm start
 ```
 
 Mantén `data/` y `.env` en el servidor y fuera de Git. Este proyecto puede desplegarse y reiniciarse sin afectar al bot de la ruleta.
+
+## Informe semanal de loot de WoWAudit
+
+Integración opcional: miércoles a las **20:00 Europe/Madrid**, con cambios de horario de verano/invierno. No requiere cron ni otra automatización. Configura en `.env`:
+
+```dotenv
+WOWAUDIT_API_KEY=<clave del equipo de WoWAudit>
+WOWAUDIT_LOOT_CHANNEL_ID=<ID del canal de este servidor>
+WOWAUDIT_LOOT_WINDOW_DAYS=
+WOWAUDIT_LOOT_CATEGORIES=BIS,Mejora de stats,set 4p Catalizar
+```
+
+La clave selecciona el equipo de WoWAudit. Guarda `.env` solo en el servidor (`chmod 600 .env`); nunca en Git ni en la imagen. El bot necesita Ver canal y Enviar mensajes en el destino. Ambos campos vacíos desactivan la integración; una configuración parcial o inválida la desactiva con un error de configuración, sin detener la sincronización Blizzard.
+
+**Contrato verificado el 13-10-2026:** [API oficial](https://wowaudit.com/api), Swagger integrado en su aplicación web. `GET /v1/period` devuelve `current_season.keystone_season_id` (no usar `current_season.id`). `GET /v1/characters` devuelve un array del roster. `GET /v1/loot_history/{id}` devuelve `history_items`; el destinatario es `character_id`, no `awarded_by_character_id` ni `awarded_by_name`. Autenticación mediante `Authorization: Bearer ...`. La documentación describe el historial completo de temporada, sin paginación ni filtros por fecha; el filtro temporal se aplica localmente. `test/fixtures/wowaudit.json` contiene ejemplos oficiales, no datos de Whitebird.
+
+**Cálculo:** número de adjudicaciones registradas y no descartadas, una por objeto, solo con `difficulty=mythic` y `response_type.name` en BIS, Mejora de stats o set 4p Catalizar. `WOWAUDIT_LOOT_CATEGORIES` permite ajustar los nombres al equipo; se ignoran mayúsculas y espacios repetidos, sin coincidencias parciales. Categorías nulas no cuentan. No usa `response_type.propagated_to` como categoría ni el indicador `excluded` para alterar esta selección. Por defecto desde `current_season.start_date` a las 00:00 UTC hasta el miércoles a las 20:00 Madrid, extremo final excluido. La fecha oficial no trae zona; UTC es una convención explícita. `WOWAUDIT_LOOT_WINDOW_DAYS=N` limita a las últimas N×24 horas, siempre dentro de la temporada actual: no consulta temporadas anteriores. El cierre se mantiene fijo durante los reintentos.
+
+El roster relevante es el **roster actual del equipo de WoWAudit**, con `status=tracking` y `rank=Main`; Trial, Alt y Social quedan fuera. Se inicializa con cero antes de contar. Cada main se cuenta independientemente; no se suma loot de alts. No reconstruye rosters históricos ni divide por asistencia: recién incorporados pueden tener cero. No infiere propietarios de alts. La base existente solo vincula un main por usuario: las menciones se resuelven por nombre y reino normalizados, únicamente si la coincidencia es única, sin ping. Personajes sin vínculo aparecen por nombre/reino. Un nombre ambiguo o un duplicado de identidad en WoWAudit cancela el informe para evitar atribuciones incorrectas.
+
+Se deduplica por `id` y por `rclootcouncil_id` cuando existe; duplicados con destinatario/objeto/fecha/estado incompatibles cancelan el informe. No se deduplica por ID de objeto: dos objetos iguales adjudicados legítimamente cuentan dos veces. Los empates comparten puesto; nombre/reino e ID determinan el orden, con cinco entradas como máximo por lista y aviso si el empate continúa después del corte. Con menos de diez personajes las listas pueden solaparse. Un historial vacío válido genera ceros con advertencia de cobertura: no prueba que no haya habido loot. El informe solo representa lo importado en WoWAudit, no todo el loot del juego.
+
+**Docker:** utiliza el `compose.yaml` existente con `.env` y el volumen persistente `./data`. Tras configurar:
+
+```sh
+docker compose build
+docker compose run --rm bot npm test
+docker compose up -d
+docker compose logs --tail=100 bot
+```
+
+Conserva el volumen y ejecuta una sola instancia del bot. La tabla SQLite `wowaudit_reports` guarda la semana, canal, estado y mensaje. Consulta al arrancar y cada minuto: si arranca el miércoles entre 20:00 y 20:59 recupera el envío de esa semana; fuera de esa hora espera a la siguiente semana. Fallos de API se reintentan cada cinco minutos durante esa hora; timeout de 15 segundos por petición, tres intentos para fallos transitorios/429 y espera limitada. Errores de permisos o esquema no producen rankings parciales. No registra claves ni cuerpos de error.
+
+Antes de enviar se guarda una marca `sending`. Si Discord acepta el mensaje pero la conexión falla, o el proceso cae entre envío y confirmación, no se reenvía automáticamente: revisa el canal y esa fila en SQLite. Si confirmas que no se envió, elimina únicamente la fila de esa semana/canal para reintentar dentro de la hora; respalda la base primero. Esto prioriza evitar duplicados y puede requerir recuperación manual. No hay envíos retroactivos fuera de la hora indicada.
+
+Validación automática con ejemplos oficiales y respuestas simuladas. Para validar datos reales, configura la clave del equipo y comprueba una adjudicación conocida, un personaje con cero y el roster antes del primer miércoles. No se ha calculado ni publicado un ranking real de Whitebird durante el desarrollo.
+
+### Probar el informe sin esperar al miércoles
+
+Un oficial (Gestionar servidor o `OFFICER_ROLE_IDS`) puede ejecutar **`/wow-loot-probar`**. Consulta datos reales con los mismos filtros y período configurados, pero con cierre en el momento de ejecutar el comando. La respuesta es privada y no genera menciones ni publica en el canal de destino. No modifica las marcas de envío semanal de SQLite, por lo que no consume ni bloquea el informe del miércoles. Requiere la configuración WoWAudit completa; los errores producen un aviso, sin ranking parcial.
+
+Después de desplegar esta versión, registra el nuevo comando:
+
+```sh
+docker compose run --rm bot npm run register
+docker compose up -d --build
+```
+
+El registro requiere `DISCORD_CLIENT_ID`, `DISCORD_GUILD_ID` y `DISCORD_TOKEN` en `.env` y actualiza la lista de comandos del bot para el servidor configurado.

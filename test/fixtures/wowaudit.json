@@ -1,0 +1,223 @@
+{
+  "/v1/characters": [
+    {
+      "id": 4,
+      "name": "Bexey",
+      "realm": "Stormrage",
+      "class": "Mage",
+      "role": "Ranged",
+      "rank": "Main",
+      "status": "tracking",
+      "note": null,
+      "blizzard_id": "628-13345678",
+      "tracking_since": "2024-10-01T19:51:31.000Z",
+      "game_data": {
+        "bonus_roll": {
+          "left": 1,
+          "cap": 0,
+          "earned": 0,
+          "currency_id": 3418,
+          "updated_at": 1788200383
+        },
+        "crests": {
+          "updated_at": 1788200383,
+          "left": {
+            "3443": 211,
+            "3444": 20,
+            "3446": 14
+          }
+        },
+        "catalyst": {
+          "updated_at": 1788200383,
+          "left": {
+            "3465": 2
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "name": "Kormash",
+      "realm": "Stormrage",
+      "class": "Death Knight",
+      "role": "Tank",
+      "rank": "Main",
+      "status": "tracking",
+      "note": null,
+      "blizzard_id": "628-52345678",
+      "tracking_since": "2024-10-01T19:51:31.000Z",
+      "game_data": {}
+    },
+    {
+      "id": 1,
+      "name": "Sheday",
+      "realm": "Stormrage",
+      "class": "Paladin",
+      "role": "Melee",
+      "rank": "Main",
+      "status": "tracking",
+      "note": null,
+      "blizzard_id": "628-12345678",
+      "tracking_since": "2024-10-01T19:51:31.000Z",
+      "game_data": {}
+    },
+    {
+      "id": 3,
+      "name": "Tute",
+      "realm": "Stormrage",
+      "class": "Priest",
+      "role": "Heal",
+      "rank": "Main",
+      "status": "tracking",
+      "note": null,
+      "blizzard_id": "628-72345678",
+      "tracking_since": "2024-10-01T19:51:31.000Z",
+      "game_data": {}
+    }
+  ],
+  "/v1/period": {
+    "current_period": 978,
+    "current_season": {
+      "id": 1,
+      "name": "Season 3",
+      "start_date": "2014-10-01",
+      "end_date": "2025-10-01",
+      "kind": "live",
+      "expansion": "Dragonflight",
+      "keystone_season_id": 11,
+      "pvp_season_id": 36,
+      "first_period_id": 933
+    }
+  },
+  "/v1/loot_history/{id}": {
+    "history_items": [
+      {
+        "id": 2,
+        "rclootcouncil_id": "1715197229-1",
+        "item_id": 207149,
+        "name": "Phlegethic Girdle",
+        "icon": "inv_plate_raiddeathknightemerald_d_01_belt",
+        "slot": "Waist",
+        "quality": "epic",
+        "character_id": 2,
+        "awarded_by_character_id": 1,
+        "awarded_by_name": "Sheday-Stormrage",
+        "awarded_at": "2024-10-01T19:52:58.006Z",
+        "difficulty": "mythic",
+        "discarded": false,
+        "response_type": {
+          "id": 3,
+          "name": "Main",
+          "rgba": "rgba(0, 255, 0, 1)",
+          "excluded": false,
+          "propagated_to": {
+            "id": 1,
+            "name": "Major",
+            "rgba": "rgba(0, 255, 0, 1)",
+            "excluded": false
+          }
+        },
+        "bonus_ids": [
+          "6652",
+          "10533",
+          "7981",
+          "10340",
+          "10884",
+          "1602",
+          "8767"
+        ],
+        "old_items": [
+          {
+            "item_id": 207139,
+            "bonus_ids": [
+              "6652",
+              "10533",
+              "7981",
+              "10340",
+              "10884",
+              "1602",
+              "8767"
+            ]
+          }
+        ],
+        "same_response_amount": 3,
+        "note": "bis",
+        "wish_data": [
+          {
+            "value": 2902,
+            "spec_name": "Holy",
+            "spec_icon": "spell_holy_holybolt"
+          }
+        ],
+        "wish_value": 2902
+      },
+      {
+        "id": 1,
+        "rclootcouncil_id": "1715197229-0",
+        "item_id": 207162,
+        "name": "Signet of the Last Elder",
+        "icon": "inv_10_dungeonjewelry_explorer_ring_2_color5",
+        "slot": "Finger",
+        "quality": "epic",
+        "character_id": 2,
+        "awarded_by_character_id": 1,
+        "awarded_by_name": "Sheday-Stormrage",
+        "awarded_at": "2024-10-01T19:52:57.969Z",
+        "difficulty": "mythic",
+        "discarded": false,
+        "response_type": {
+          "id": 2,
+          "name": "Minor",
+          "rgba": "rgba(0, 255, 0, 1)",
+          "excluded": false,
+          "propagated_to": null
+        },
+        "bonus_ids": [
+          "6652",
+          "10533",
+          "7981",
+          "10340",
+          "10884",
+          "1602",
+          "8767"
+        ],
+        "old_items": [
+          {
+            "item_id": 207139,
+            "bonus_ids": [
+              "6652",
+              "10533",
+              "7981",
+              "10340",
+              "10884",
+              "1602",
+              "8767"
+            ]
+          },
+          {
+            "item_id": 202602,
+            "bonus_ids": [
+              "6652",
+              "10533",
+              "7981",
+              "10340",
+              "10884",
+              "1602",
+              "8767"
+            ]
+          }
+        ],
+        "same_response_amount": 0,
+        "note": null,
+        "wish_data": [
+          {
+            "value": 2902,
+            "spec_name": "Holy",
+            "spec_icon": "spell_holy_holybolt"
+          }
+        ],
+        "wish_value": 2902
+      }
+    ]
+  }
+}
