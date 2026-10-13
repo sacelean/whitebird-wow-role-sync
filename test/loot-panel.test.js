@@ -40,8 +40,8 @@ test('permission or network errors do not create duplicates',async()=>{
 });
 test('uncertain creation remains claimed after failure and cannot resend',async()=>{
  const s=setup(); s.channel.send=async()=>{s.calls.send++;throw new Error('network');};
- await assert.rejects(updateLootPanel(s.guild,config,payload,s.store),/incierta/);
- await assert.rejects(updateLootPanel(s.guild,config,payload,s.store),/incierta/);
+ await assert.rejects(updateLootPanel(s.guild,config,payload,s.store),/creación del mensaje/);
+ await assert.rejects(updateLootPanel(s.guild,config,payload,s.store),/creación del mensaje/);
  assert.equal(s.calls.send,1);
 });
 test('missing ID is rejected without channel discovery',async()=>{
@@ -61,5 +61,17 @@ test('manual and scheduled updates cannot create two messages concurrently',asyn
  await new Promise(resolve=>setImmediate(resolve));
  await assert.rejects(updateLootPanel(s.guild,config,payload,s.store),/en curso/);
  release(); await first;
+ assert.equal(s.calls.send,1);
+});
+
+test('a blocked claim logs its state without sending or inventing a cause',async()=>{
+ const s=setup(); s.store.claim();
+ await assert.rejects(updateLootPanel(s.guild,config,payload,s.store),/logs de la operación/);
+ assert.equal(s.calls.send,0); assert.equal(s.store.get().status,'creating');
+});
+test('save failure after creation preserves the claim for diagnosis, without sending again',async()=>{
+ const s=setup(); s.store.save=()=>{throw {name:'SqliteError',code:'SQLITE_BUSY'};};
+ await assert.rejects(updateLootPanel(s.guild,config,payload,s.store),/guardar su ID/);
+ await assert.rejects(updateLootPanel(s.guild,config,payload,s.store),/logs de la operación/);
  assert.equal(s.calls.send,1);
 });

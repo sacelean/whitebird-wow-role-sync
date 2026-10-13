@@ -1,4 +1,4 @@
-const networkCodes = new Set(['ECONNRESET','ETIMEDOUT','ENOTFOUND','ECONNREFUSED','EPIPE','UND_ERR_CONNECT_TIMEOUT','UND_ERR_SOCKET']);
+const networkCodes = new Set(['ECONNRESET','ETIMEDOUT','ENOTFOUND','ECONNREFUSED','EPIPE','UND_ERR_CONNECT_TIMEOUT','UND_ERR_SOCKET','SQLITE_BUSY','SQLITE_READONLY','SQLITE_FULL','SQLITE_IOERR','SQLITE_CONSTRAINT','SQLITE_CORRUPT']);
 const validationKeys = new Set(['embeds','description','fields','name','value','title','footer','text','color','timestamp','content','attachments','files','allowed_mentions','parse','users','roles','nonce']);
 const safeCode = code => Number.isInteger(code) ? code : networkCodes.has(code) ? code : null;
 function validationPaths(errors, path = [], result = []) {
