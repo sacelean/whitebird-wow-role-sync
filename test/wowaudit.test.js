@@ -59,15 +59,16 @@ test('fixed cutoff is Madrid 20:00 in summer and winter',()=>{
  assert.equal(new Date(weeklyCutoff('2026-10-28')).toISOString(),'2026-10-28T19:00:00.000Z');
 });
 
-test('only Mythic Main and the three selected categories, keeping zero-loot mains',()=>{
+test('only Mythic Main and the four selected categories, keeping zero-loot mains',()=>{
  const trial={...roster[0], id:9, name:'Trial', rank:'Trial'};
  const award=(id,category,difficulty='mythic',character_id=2)=>({...history[0],id,rclootcouncil_id:`import-${id}`,difficulty,character_id,response_type:category===null?null:{name:category}});
  const result=buildLootRanking([...roster,trial],[
-  award(11,'BIS'),award(12,'Mejora de stats'),award(13,'set 4p Catalizar'),
+  award(11,'BIS'),award(12,'Mejora de stats'),award(13,'set 4p'),
   award(14,' bis '),award(15,'Mejora de stats','heroic'),award(16,'Offspec'),
   award(17,'BIS','mythic',9),award(18,null),award(19,'BIS extra'),
+  award(20,'Catalizar'),award(21,'set 4p Catalizar'),
  ],[],{start:options.start,end:options.end});
- assert.equal(result.total,4); assert.equal(result.size,4);
+ assert.equal(result.total,5); assert.equal(result.size,4);
  assert.equal(result.most[0].name,'Kormash'); assert.equal(result.least[0].count,0);
  assert.ok(!result.most.some(r=>r.name==='Trial'));
 });
@@ -78,4 +79,23 @@ test('preview diagnostics expose only controlled errors, never arbitrary excepti
   assert.match(lootErrorMessage(error),/Configura WOWAUDIT_API_KEY/);
   assert.doesNotMatch(lootErrorMessage(error),/secret-token/);
  }
+});
+
+test('live period without keystone ID uses verified WoWAudit season id 18',async()=>{
+ const livePeriod=JSON.parse(readFileSync(new URL('./fixtures/wowaudit-period-live.json',import.meta.url)));
+ const paths=[];
+ const content=await fetchLootReport({apiKey:'private',categories:['Main','Minor']},[],Date.parse('2026-10-13T18:00Z'),async(url)=>{
+  const path=new URL(url).pathname; paths.push(path);
+  const data=path==='/v1/period'?livePeriod:path==='/v1/characters'?roster:{history_items:[]};
+  return {ok:true,json:async()=>data};
+ });
+ assert.deepEqual(paths,['/v1/period','/v1/characters','/v1/loot_history/18']);
+ assert.match(content,/Temporada WoWAudit 18/); assert.match(content,/2026-08-11T00:00:00.000Z/);
+});
+test('invalid legacy season identifier is rejected rather than falling back silently',async()=>{
+ let calls=0;
+ await assert.rejects(fetchLootReport({apiKey:'private'},[],Date.parse('2026-10-13T18:00Z'),async()=>{
+  calls++; return {ok:true,json:async()=>({current_season:{id:18,keystone_season_id:'invalid',start_date:'2026-08-11'}})};
+ }),/identificador de temporada/);
+ assert.equal(calls,1);
 });

@@ -1,7 +1,7 @@
 // Contract: https://wowaudit.com/api (official embedded Swagger, verified 2026-10-13).
 const key = (s) => s.normalize('NFC').toLowerCase().replace(/[\s’']/g, '').replace(/-/g, '');
 const identity = (name, realm) => `${key(name)}:${key(realm)}`;
-export const DEFAULT_LOOT_CATEGORIES = ['BIS', 'Mejora de stats', 'set 4p Catalizar'];
+export const DEFAULT_LOOT_CATEGORIES = ['BIS', 'Mejora de stats', 'set 4p', 'Catalizar'];
 const categoryKey = s => s.normalize('NFC').trim().toLocaleLowerCase('es-ES').replace(/\s+/g, ' ');
 const positiveId = (n) => Number.isSafeInteger(n) && n > 0;
 class WoWAuditError extends Error {}
@@ -96,19 +96,22 @@ export function buildLootRanking(roster, history, links, { start, end, categorie
 export async function fetchLootReport(config, links, end = Date.now(), fetcher = fetch) {
   const period = await auditGet('/v1/period', config.apiKey, fetcher);
   const season = period?.current_season;
-  requireSchema(positiveId(season?.keystone_season_id) && typeof season.start_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(season.start_date), '/v1/period sin temporada keystone o fecha de inicio válida');
+  // Legacy Swagger exposes keystone_season_id; the live API omits it and uses id.
+  // Live contract verified: current_season.id=18 -> /v1/loot_history/18 returns history_items.
+  const seasonId = season?.keystone_season_id ?? season?.id;
+  requireSchema(positiveId(seasonId) && typeof season.start_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(season.start_date), '/v1/period sin identificador de temporada o fecha de inicio válida');
   // WoWAudit provides a date without a timezone; use explicit UTC midnight.
   const seasonStart = Date.parse(`${season.start_date}T00:00:00Z`);
   requireSchema(Number.isFinite(seasonStart) && seasonStart < end);
   const start = Math.max(seasonStart, config.days ? end - config.days * 86400000 : seasonStart);
   const roster = await auditGet('/v1/characters', config.apiKey, fetcher);
-  const loot = await auditGet(`/v1/loot_history/${season.keystone_season_id}`, config.apiKey, fetcher);
+  const loot = await auditGet(`/v1/loot_history/${seasonId}`, config.apiKey, fetcher);
   const ranking = buildLootRanking(roster, loot?.history_items, links, { start, end, categories: config.categories });
   const safe = s => s.replace(/[\\*_`~|<>@]/g, '').replace(/[\r\n]/g,' ').slice(0,30);
   const section = (title, rows) => [title, ...rows.map(r => `${r.position}. ${safe(r.name)} · ${safe(r.realm)}${r.userId ? ` (<@${r.userId}>)` : ''}: **${r.count}**${r.cutTie ? ' (empate en el corte)' : ''}`)].join('\n');
   const content = [
     '**Informe semanal de loot registrado en WoWAudit — por personaje**',
-    `Temporada keystone ${season.keystone_season_id}; [${new Date(start).toISOString()}, ${new Date(end).toISOString()}) UTC.`,
+    `Temporada WoWAudit ${seasonId}; [${new Date(start).toISOString()}, ${new Date(end).toISOString()}) UTC.`,
     `Roster actual en seguimiento: Main · ${ranking.size} personajes · ${ranking.total} objetos.`,
     `Filtros: Mythic · categorías: ${config.categories.map(safe).join(', ')}.`,
     section('**5 con más loot**', ranking.most), section('**5 con menos loot**', ranking.least),
