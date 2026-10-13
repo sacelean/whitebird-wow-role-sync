@@ -6,7 +6,7 @@ function setup() {
   let row=null;
   const calls={send:0,edit:0,fetch:0};
   const message={id:'message',author:{id:'bot'},edit:async options=>{calls.edit++; assert.deepEqual(options.allowedMentions,{parse:[]}); assert.equal(options.content,null);}};
-  const channel={id:'channel',name:'rooster-summary',isTextBased:()=>true,
+  const channel={id:'channel',name:'any-configured-channel',isTextBased:()=>true,
     send:async options=>{calls.send++; assert.deepEqual(options.allowedMentions,{parse:[]}); return message;},
     messages:{fetch:async options=>{calls.fetch++; assert.equal(options.force,true); return message;}}};
   const guild={id:'guild',client:{user:{id:'bot'}},channels:{fetch:async id=>id?channel:new Map([['channel',channel]])}};
@@ -16,7 +16,7 @@ function setup() {
   },save:(g,c,id,slot)=>{row={message_id:id,status:'ready',last_slot:slot??row?.last_slot??null};}};
   return {guild,store,calls,channel,message};
 }
-const config={channelName:'rooster-summary',channelId:null};
+const config={channelId:'channel'};
 test('first publish creates once; subsequent manual and weekly refreshes edit same message',async()=>{
  const s=setup();
  await updateLootPanel(s.guild,config,payload,s.store);
@@ -44,9 +44,9 @@ test('uncertain creation remains claimed after failure and cannot resend',async(
  await assert.rejects(updateLootPanel(s.guild,config,payload,s.store),/incierta/);
  assert.equal(s.calls.send,1);
 });
-test('ambiguous channel names require an explicit ID',async()=>{
- const s=setup(); s.guild.channels.fetch=async()=>new Map([['a',s.channel],['b',{...s.channel,id:'other'}]]);
- await assert.rejects(resolveLootChannel(s.guild,config),/canal de texto único/);
+test('missing ID is rejected without channel discovery',async()=>{
+ const s=setup(); s.guild.channels.fetch=async()=>{throw new Error('should not fetch');};
+ await assert.rejects(resolveLootChannel(s.guild,{}),/WOWAUDIT_LOOT_CHANNEL_ID/);
 });
 test('never edits a message owned by another bot',async()=>{
  const s=setup(); await updateLootPanel(s.guild,config,payload,s.store);

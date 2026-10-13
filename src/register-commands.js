@@ -9,7 +9,7 @@ if (!token || !clientId || !guildId) throw new Error('Configura DISCORD_TOKEN, D
 const commands = [
   new SlashCommandBuilder()
     .setName('wow-loot-actualizar')
-    .setDescription('Publica o actualiza el mensaje completo de loot en rooster-summary (oficiales)'),
+    .setDescription('Publica o actualiza el mensaje completo de loot en el canal configurado (oficiales)'),
   new SlashCommandBuilder()
     .setName('wow-loot-probar')
     .setDescription('Vista previa privada del loot Mythic del roster en WoWAudit (oficiales)'),

@@ -4,15 +4,11 @@ class LootPanelError extends Error {
 const activeUpdates = new Set();
 
 export async function resolveLootChannel(guild, config) {
-  if (config.channelId) {
-    const channel = await guild.channels.fetch(config.channelId);
-    if (!channel?.isTextBased() || typeof channel.send !== 'function' || !channel.messages) throw new LootPanelError('Canal WoWAudit no disponible.');
-    return channel;
-  }
-  const channels = await guild.channels.fetch();
-  const matches = [...channels.values()].filter(c => c?.name === config.channelName && c.isTextBased() && typeof c.send === 'function' && c.messages);
-  if (matches.length !== 1) throw new LootPanelError('No hay un canal de texto único rooster-summary/configurado; configura WOWAUDIT_LOOT_CHANNEL_ID.');
-  return matches[0];
+  if (!config.channelId) throw new LootPanelError('Configura WOWAUDIT_LOOT_CHANNEL_ID.');
+  const channel = await guild.channels.fetch(config.channelId);
+  if (!channel?.isTextBased() || typeof channel.send !== 'function' || !channel.messages) throw new LootPanelError('Canal WoWAudit no disponible.');
+  return channel;
+
 }
 
 export async function updateLootPanel(guild, config, payload, store, slot = null) {

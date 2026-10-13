@@ -125,14 +125,13 @@ Integración opcional: miércoles a las **20:00 Europe/Madrid**, con cambios de 
 
 ```dotenv
 WOWAUDIT_API_KEY=<clave del equipo de WoWAudit>
-WOWAUDIT_LOOT_CHANNEL_ID=
-WOWAUDIT_LOOT_CHANNEL_NAME=rooster-summary
+WOWAUDIT_LOOT_CHANNEL_ID=<ID del canal de destino>
 WOWAUDIT_LOOT_WINDOW_DAYS=
 WOWAUDIT_LOOT_CATEGORIES=BIS,Mejora de stats,set 4p,Catalizar
 WOWAUDIT_LOOT_RANKS=Oficiales,Fijo,Rotativo
 ```
 
-La clave selecciona el equipo de WoWAudit. Guarda `.env` solo en el servidor (`chmod 600 .env`); nunca en Git ni en la imagen. El bot necesita Ver canal y Enviar mensajes en el destino. La integración se activa con la clave. El destino predeterminado es el canal de texto `rooster-summary` del servidor configurado. Un ID en `WOWAUDIT_LOOT_CHANNEL_ID` tiene prioridad sobre el nombre; déjalo vacío para usar el nombre, o pon el ID de `rooster-summary`. Si hay varios canales con ese nombre, exige un ID para evitar publicar en uno incorrecto. El bot necesita también Leer historial de mensajes e Insertar enlaces. Sin configuración WoWAudit queda desactivada; errores de configuración no detienen Blizzard.
+La clave selecciona el equipo de WoWAudit. Guarda `.env` solo en el servidor (`chmod 600 .env`); nunca en Git ni en la imagen. El bot necesita Ver canal y Enviar mensajes en el destino. La integración requiere la clave y `WOWAUDIT_LOOT_CHANNEL_ID`; el canal se elige por ese parámetro, sin nombres predeterminados. El bot necesita también Leer historial de mensajes e Insertar enlaces. Sin configuración WoWAudit queda desactivada; errores de configuración no detienen Blizzard.
 
 **Contrato verificado el 13-10-2026:** [API oficial](https://wowaudit.com/api), Swagger integrado en su aplicación web. El ejemplo Swagger antiguo de `GET /v1/period` incluye `current_season.keystone_season_id`; si existe se utiliza ese campo. La respuesta real comprobada del equipo no lo incluye: se utiliza `current_season.id` (18), y se ha confirmado HTTP 200 con 546 registros en `/v1/loot_history/18`. No se confunde este ID con `pvp_season_id` ni `tier_id`. `GET /v1/characters` devuelve un array del roster. `GET /v1/loot_history/{id}` devuelve `history_items`; el destinatario es `character_id`, no `awarded_by_character_id` ni `awarded_by_name`. Autenticación mediante `Authorization: Bearer ...`. La documentación describe el historial completo de temporada, sin paginación ni filtros por fecha; el filtro temporal se aplica localmente. `test/fixtures/wowaudit.json` contiene ejemplos oficiales; `wowaudit-period-live.json` reproduce únicamente los metadatos públicos de temporada comprobados, sin clave ni historial del equipo.
 
@@ -161,9 +160,9 @@ Validación automática con ejemplos oficiales y respuestas simuladas. Para vali
 
 ### Probar el informe sin esperar al miércoles
 
-Un oficial (Gestionar servidor o `OFFICER_ROLE_IDS`) puede ejecutar **`/wow-loot-probar`**. Muestra la lista completa de forma privada, con datos reales y cierre en el momento de ejecutar el comando. No modifica el mensaje público ni la marca semanal. Requiere la clave y filtros de WoWAudit; los errores producen un aviso, sin ranking parcial.
+Un oficial (Gestionar servidor o `OFFICER_ROLE_IDS`) puede ejecutar **`/wow-loot-probar`**. Muestra la lista completa de forma privada, con datos reales y cierre en el momento de ejecutar el comando. No modifica el mensaje público ni la marca semanal. Requiere la clave, el canal configurado y filtros de WoWAudit; los errores producen un aviso, sin ranking parcial.
 
-Para publicar por primera vez o actualizarlo al momento, ejecuta **`/wow-loot-actualizar`** (solo oficiales). Genera el informe hasta ahora, crea o edita el mismo mensaje público en `rooster-summary` y devuelve su enlace en una respuesta privada. Comparte la misma persistencia y protección ante duplicados con la actualización semanal. Una actualización manual no consume la actualización del miércoles.
+Para publicar por primera vez o actualizarlo al momento, ejecuta **`/wow-loot-actualizar`** (solo oficiales). Genera el informe hasta ahora, crea o edita el mismo mensaje público en el canal configurado y devuelve su enlace en una respuesta privada. Comparte la misma persistencia y protección ante duplicados con la actualización semanal. Una actualización manual no consume la actualización del miércoles.
 
 Después de desplegar esta versión, registra el nuevo comando:
 

@@ -500,7 +500,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       try {
         const config = getLootConfig();
-        if (!config) return interaction.editReply('WoWAudit está desactivado. Configura WOWAUDIT_API_KEY en el servidor.');
+        if (!config) return interaction.editReply('WoWAudit está desactivado. Configura WOWAUDIT_API_KEY y WOWAUDIT_LOOT_CHANNEL_ID en el servidor.');
         const report = await fetchLootReport(config, getWowLinks(guildId), Date.now());
         if (interaction.commandName === 'wow-loot-actualizar') {
           const panel = await updateLootPanel(interaction.guild, config, report, lootPanelStore);

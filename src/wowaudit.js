@@ -14,19 +14,17 @@ function requireSchema(ok, detail = 'respuesta incompatible') {
 }
 
 export function getLootConfig(env = process.env) {
-  if (!env.WOWAUDIT_API_KEY && !env.WOWAUDIT_LOOT_CHANNEL_ID && !env.WOWAUDIT_LOOT_CHANNEL_NAME) return null;
+  if (!env.WOWAUDIT_API_KEY && !env.WOWAUDIT_LOOT_CHANNEL_ID) return null;
   if (!env.WOWAUDIT_API_KEY?.trim()) throw new WoWAuditError('Configura WOWAUDIT_API_KEY.');
   const channelId = env.WOWAUDIT_LOOT_CHANNEL_ID?.trim() || null;
-  const channelName = env.WOWAUDIT_LOOT_CHANNEL_NAME?.trim() || 'rooster-summary';
-  if (channelId && !/^\d{17,20}$/.test(channelId)) throw new WoWAuditError('WOWAUDIT_LOOT_CHANNEL_ID no válido.');
-  if (channelName.length > 100) throw new WoWAuditError('WOWAUDIT_LOOT_CHANNEL_NAME no válido.');
+  if (!channelId || !/^\d{17,20}$/.test(channelId)) throw new WoWAuditError('WOWAUDIT_LOOT_CHANNEL_ID no válido.');
   const days = env.WOWAUDIT_LOOT_WINDOW_DAYS ? Number(env.WOWAUDIT_LOOT_WINDOW_DAYS) : null;
   if (days !== null && (!Number.isInteger(days) || days < 1 || days > 3660)) throw new WoWAuditError('WOWAUDIT_LOOT_WINDOW_DAYS debe estar entre 1 y 3660.');
   const categories = (env.WOWAUDIT_LOOT_CATEGORIES || DEFAULT_LOOT_CATEGORIES.join(',')).split(',').map(s => s.trim());
   if (categories.some(s => !s || s.length > 100)) throw new WoWAuditError('WOWAUDIT_LOOT_CATEGORIES no válido.');
   const ranks = (env.WOWAUDIT_LOOT_RANKS || DEFAULT_LOOT_RANKS.join(',')).split(',').map(s => s.trim());
   if (ranks.length > 10 || ranks.some(s => !s || s.length > 100)) throw new WoWAuditError('WOWAUDIT_LOOT_RANKS no válido.');
-  return { apiKey: env.WOWAUDIT_API_KEY.trim(), channelId, channelName, days, categories, ranks };
+  return { apiKey: env.WOWAUDIT_API_KEY.trim(), channelId, days, categories, ranks };
 
 }
 
