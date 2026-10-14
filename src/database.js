@@ -235,6 +235,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS wow_bis_lists (
   source_urls_json TEXT NOT NULL DEFAULT '[]',
   page_url TEXT,
   fetched_at TEXT,
+  guide_patch TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   decided_at TEXT,
   accepted_by_user_id TEXT
@@ -275,6 +276,11 @@ CREATE TABLE IF NOT EXISTS wow_bis_item_edits (
   edited_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );`);
 
+db.transaction(() => {
+  const bisColumns = new Set(db.pragma('table_info(wow_bis_lists)').map((column) => column.name));
+  if (!bisColumns.has('guide_patch')) db.exec('ALTER TABLE wow_bis_lists ADD COLUMN guide_patch TEXT');
+}).immediate();
+
 export function createBisProposal(proposal) {
   const create = db.transaction(() => {
     db.prepare(`UPDATE wow_bis_lists SET status='superseded', decided_at=CURRENT_TIMESTAMP
@@ -293,6 +299,11 @@ export function setBisProposalMessage(id, messageId) {
   return db.prepare('UPDATE wow_bis_lists SET message_id=? WHERE id=? AND status=\'awaiting_spec\'').run(messageId, id).changes === 1;
 }
 
+export function markBisProposalAwaitingSource(id, specId, specName) {
+  return db.prepare(`UPDATE wow_bis_lists SET spec_id=?, spec_name=?, status='awaiting_source'
+    WHERE id=? AND status='awaiting_spec'`).run(specId, specName, id).changes === 1;
+}
+
 export function getBisProposal(id) {
   const proposal = db.prepare('SELECT * FROM wow_bis_lists WHERE id=?').get(id) || null;
   if (!proposal) return null;
@@ -302,6 +313,7 @@ export function getBisProposal(id) {
     sourceUrls: JSON.parse(proposal.source_urls_json || '[]'),
     sourceIds: JSON.parse(proposal.sources_json || '[]'),
     fetchedAt: proposal.fetched_at,
+    patch: proposal.guide_patch,
     pageUrl: proposal.page_url,
     className: proposal.class_name,
     specName: proposal.spec_name,
@@ -313,11 +325,11 @@ export function getBisProposal(id) {
 export function saveBisProposalList(id, bisList) {
   const save = db.transaction(() => {
     const updated = db.prepare(`UPDATE wow_bis_lists SET class_id=?, class_name=?, spec_id=?, spec_name=?,
-      sources_json=?, source_urls_json=?, page_url=?, fetched_at=?, status='pending'
+      sources_json=?, source_urls_json=?, page_url=?, fetched_at=?, guide_patch=?, status='pending'
       WHERE id=? AND status IN ('awaiting_spec','building')`).run(
       bisList.classId, bisList.className, bisList.specId, bisList.specName,
       JSON.stringify(bisList.sourceIds), JSON.stringify(bisList.sourceUrls), bisList.pageUrl,
-      bisList.fetchedAt, id
+      bisList.fetchedAt, bisList.patch || null, id
     );
     if (updated.changes !== 1) return false;
     const insert = db.prepare(`INSERT INTO wow_bis_list_items
@@ -332,12 +344,12 @@ export function saveBisProposalList(id, bisList) {
 }
 
 export function markBisProposalBuilding(id) {
-  return db.prepare(`UPDATE wow_bis_lists SET status='building' WHERE id=? AND status='awaiting_spec'`).run(id).changes === 1;
+  return db.prepare(`UPDATE wow_bis_lists SET status='building' WHERE id=? AND status='awaiting_source'`).run(id).changes === 1;
 }
 
 export function markBisProposalFailed(id) {
   return db.prepare(`UPDATE wow_bis_lists SET status='failed', decided_at=CURRENT_TIMESTAMP
-    WHERE id=? AND status IN ('awaiting_spec','building','pending')`).run(id).changes === 1;
+    WHERE id=? AND status IN ('awaiting_spec','awaiting_source','building','pending')`).run(id).changes === 1;
 }
 
 export function acceptBisProposal(guildId, userId, id) {

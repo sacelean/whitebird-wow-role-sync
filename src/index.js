@@ -4,7 +4,7 @@ import { startLootScheduler } from './loot-scheduler.js';
 import { startGearReminderScheduler } from './gear-reminders.js';
 import { getLootConfig, fetchLootReport, fetchRaiderTableReport, lootErrorMessage } from './wowaudit.js';
 import { auditGet } from './wowaudit.js';
-import { BisListError, buildBisList, fetchBlingClasses, formatBisProposal } from './bis-lists.js';
+import { BisListError, buildBisList, buildMethodBisList, fetchBlingClasses, formatBisProposal } from './bis-lists.js';
 import { randomUUID } from 'node:crypto';
 import {
   ActionRowBuilder,
@@ -27,6 +27,7 @@ import {
   getLootDestination,
   getBisProposal,
   createBisProposal,
+  markBisProposalAwaitingSource,
   markBisProposalBuilding,
   markBisProposalFailed,
   rejectBisProposal,
@@ -115,6 +116,20 @@ function bisSpecRow(proposalId, specs) {
   );
 }
 
+function bisSourceRow(proposalId) {
+  return new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId(`wow-bis-source:${proposalId}`)
+      .setPlaceholder('Elige de dónde obtener la lista BIS')
+      .setMinValues(1)
+      .setMaxValues(1)
+      .addOptions(
+        { label: 'Method', value: 'method', description: 'Guía de equipamiento de Method' },
+        { label: 'Blingtron', value: 'blingtron', description: 'Feed de listas BIS de Blingtron' }
+      )
+  );
+}
+
 function bisDecisionRow(proposalId) {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`wow-bis-edit:${proposalId}`).setLabel('Editar objeto').setStyle(ButtonStyle.Secondary),
@@ -160,7 +175,8 @@ function bisEditModal(proposalId, ordinal, currentItem) {
     .setCustomId(`wow-bis-edit-submit:${proposalId}:${ordinal}`)
     .setTitle('Sustituir objeto BIS');
   const name = new TextInputBuilder().setCustomId('name').setLabel('Nombre del objeto').setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(true).setValue(currentItem.itemName.slice(0, 100));
-  const itemId = new TextInputBuilder().setCustomId('item-id').setLabel('ID numérico de Wowhead').setStyle(TextInputStyle.Short).setMaxLength(12).setRequired(true).setValue(String(currentItem.itemId));
+  const itemId = new TextInputBuilder().setCustomId('item-id').setLabel('ID numérico de Wowhead').setStyle(TextInputStyle.Short).setMaxLength(12).setRequired(true);
+  if (currentItem.itemId > 0) itemId.setValue(String(currentItem.itemId));
   const source = new TextInputBuilder().setCustomId('source').setLabel('Dónde se obtiene').setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(true).setValue(currentItem.sourceName.slice(0, 100));
   modal.addComponents(
     new ActionRowBuilder().addComponents(name),
@@ -173,14 +189,14 @@ function bisEditModal(proposalId, ordinal, currentItem) {
 const rosterKey = (value) => String(value || '').normalize('NFKD').replace(/\p{M}/gu, '').toLocaleLowerCase('en-US').replace(/[^\p{L}\p{N}]/gu, '');
 
 async function handleBisComponent(interaction) {
-  const match = interaction.customId.match(/^wow-bis-(spec|accept|reject|edit|edit-item|edit-page|edit-submit):([0-9a-f-]{36})(?::(\d+))?$/);
+  const match = interaction.customId.match(/^wow-bis-(spec|source|accept|reject|edit|edit-item|edit-page|edit-submit):([0-9a-f-]{36})(?::(\d+))?$/);
   if (!match) return;
   const [, action, proposalId, indexText] = match;
   const proposal = getBisProposal(proposalId);
   if (!proposal || proposal.guild_id !== interaction.guildId || proposal.channel_id !== interaction.channelId) {
     return interaction.reply({ content: 'Esta propuesta BIS ya no está disponible.', flags: MessageFlags.Ephemeral });
   }
-  const fromProposalMessage = ['spec', 'accept', 'reject', 'edit'].includes(action);
+  const fromProposalMessage = ['spec', 'source', 'accept', 'reject', 'edit'].includes(action);
   if (fromProposalMessage && proposal.message_id !== interaction.message?.id) {
     return interaction.reply({ content: 'Esta propuesta BIS ya no está disponible.', flags: MessageFlags.Ephemeral });
   }
@@ -262,12 +278,52 @@ async function handleBisComponent(interaction) {
       return interaction.reply({ content: 'La selección de especialización ya no está activa.', flags: MessageFlags.Ephemeral });
     }
     const specId = interaction.values[0];
+    await interaction.deferUpdate();
+    try {
+      const classes = await fetchBlingClasses();
+      const classEntry = classes.find((entry) => rosterKey(entry.id) === rosterKey(proposal.class_id) || rosterKey(entry.name) === rosterKey(proposal.class_name));
+      const specEntry = classEntry?.specs.find((entry) => rosterKey(entry.id) === rosterKey(specId));
+      if (!specEntry) throw new BisListError(`Blingtron no reconoce la especialización ${specId} para ${proposal.class_name}.`);
+      if (!markBisProposalAwaitingSource(proposalId, specEntry.id, specEntry.name)) {
+        return interaction.message.edit({ content: 'La propuesta ya no está disponible para elegir fuente.', components: [], allowedMentions: { parse: [] } });
+      }
+      return interaction.message.edit({
+        content: `Has elegido **${specEntry.name}**. Ahora elige la fuente de la lista BIS.`,
+        components: [bisSourceRow(proposalId)]
+      });
+    } catch (error) {
+      markBisProposalFailed(proposalId);
+      console.error(`[BIS] No se pudo cargar la especialización de la propuesta ${proposalId}: ${error.message}`);
+      return interaction.message.edit({
+        content: `No se pudo continuar la propuesta BIS para **${proposal.character_name}**. ${error instanceof BisListError ? error.message : 'Error interno al consultar el catálogo de especializaciones.'}`,
+        embeds: [], components: [], allowedMentions: { parse: [] }
+      });
+    }
+  }
+
+  if (action === 'source') {
+    if (!interaction.isStringSelectMenu() || proposal.status !== 'awaiting_source') {
+      return interaction.reply({ content: 'La selección de fuente ya no está activa.', flags: MessageFlags.Ephemeral });
+    }
+    const source = interaction.values[0];
+    if (!['method', 'blingtron'].includes(source)) return interaction.reply({ content: 'La fuente BIS seleccionada no está disponible.', flags: MessageFlags.Ephemeral });
     if (!markBisProposalBuilding(proposalId)) {
       return interaction.reply({ content: 'La propuesta ya se está preparando o ha caducado.', flags: MessageFlags.Ephemeral });
     }
     try {
-      await interaction.update({ content: 'Preparando la lista BIS con los objetos y sus fuentes…', components: [] });
-      const bisList = await buildBisList({ className: proposal.class_name, specId, activity: proposal.activity });
+      await interaction.update({ content: `Consultando ${source === 'method' ? 'Method' : 'Blingtron'} para **${proposal.spec_name}**…`, components: [] });
+      let bisList;
+      if (source === 'method') {
+        bisList = await buildMethodBisList({
+          classId: proposal.class_id,
+          className: proposal.class_name,
+          specId: proposal.spec_id,
+          specName: proposal.spec_name,
+          activity: proposal.activity
+        });
+      } else {
+        bisList = await buildBisList({ className: proposal.class_name, specId: proposal.spec_id, activity: proposal.activity });
+      }
       if (!saveBisProposalList(proposalId, bisList)) throw new BisListError('La propuesta ya no está pendiente; no se guardó la lista.');
       await interaction.message.edit({
         content: `<@${proposal.user_id}> Revisa la propuesta BIS y confirma si quieres guardarla como tu lista activa.`,
@@ -279,7 +335,7 @@ async function handleBisComponent(interaction) {
       markBisProposalFailed(proposalId);
       console.error(`[BIS] No se pudo preparar lista ${proposalId}: ${error.message}`);
       await interaction.message.edit({
-        content: `No se pudo preparar la lista BIS para **${proposal.character_name}**. ${error instanceof BisListError ? error.message : 'Error interno al consultar Blingtron.'}`,
+        content: `No se pudo preparar la lista BIS para **${proposal.character_name}**. ${error instanceof BisListError ? error.message : `Error interno al consultar ${source === 'method' ? 'Method' : 'Blingtron'}.`}`,
         embeds: [], components: [], allowedMentions: { parse: [] }
       });
     }
@@ -773,7 +829,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           channelId: channel.id
         });
         const message = await channel.send({
-          content: `<@${target.id}> Tienes una propuesta de lista BIS para **${link.character_name}** · ${classEntry.name}. Elige tu especialización; después podrás revisar la lista y aceptarla o rechazarla.`,
+          content: `<@${target.id}> Tienes una propuesta de lista BIS para **${link.character_name}** · ${classEntry.name}. Elige tu especialización y después la fuente de la guía; podrás revisar la lista antes de aceptarla o rechazarla.`,
           components: [bisSpecRow(proposalId, classEntry.specs)],
           allowedMentions: { users: [target.id] }
         });

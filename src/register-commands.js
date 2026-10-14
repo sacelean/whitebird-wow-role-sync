@@ -17,7 +17,7 @@ const commands = [
     .addChannelOption(option => option.setName('canal').setDescription('Destino compartido con el informe semanal de loot').addChannelTypes(ChannelType.GuildText).setRequired(false)),
   new SlashCommandBuilder()
     .setName('wow-bis-proponer')
-    .setDescription('Propone al raider su lista BIS de Blingtron para que la acepte o rechace (oficiales)')
+    .setDescription('Propone al raider una lista BIS para que la acepte o rechace (oficiales)')
     .addUserOption(option => option.setName('raider').setDescription('Raider vinculado cuyo canal recibirá la propuesta').setRequired(true))
     .addStringOption(option => option.setName('actividad').setDescription('Tipo de equipamiento que debe incluir la lista').setRequired(true).addChoices(
       { name: 'General', value: 'overall' }, { name: 'Raid', value: 'raid' }, { name: 'Mítico+', value: 'mythic_plus' }
