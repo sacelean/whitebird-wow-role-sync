@@ -16,6 +16,13 @@ const commands = [
     .setDescription('Publica o actualiza la tabla semanal de raiders (oficiales)')
     .addChannelOption(option => option.setName('canal').setDescription('Destino compartido con el informe semanal de loot').addChannelTypes(ChannelType.GuildText).setRequired(false)),
   new SlashCommandBuilder()
+    .setName('wow-bis-proponer')
+    .setDescription('Propone al raider su lista BIS de Blingtron para que la acepte o rechace (oficiales)')
+    .addUserOption(option => option.setName('raider').setDescription('Raider vinculado cuyo canal recibirá la propuesta').setRequired(true))
+    .addStringOption(option => option.setName('actividad').setDescription('Tipo de equipamiento que debe incluir la lista').setRequired(true).addChoices(
+      { name: 'General', value: 'overall' }, { name: 'Raid', value: 'raid' }, { name: 'Mítico+', value: 'mythic_plus' }
+    )),
+  new SlashCommandBuilder()
     .setName('wow-vincular-auto')
     .setDescription('Busca tu main de WoW comparando tu nombre con el roster de Blizzard'),
   new SlashCommandBuilder()

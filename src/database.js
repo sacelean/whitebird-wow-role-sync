@@ -214,6 +214,188 @@ export function saveRaiderPanel(guildId, channelId, messageId, slot = null) {
 export const raiderPanelStore = { get: getRaiderPanel, claim: claimRaiderPanel, save: saveRaiderPanel };
 
 
+// Raider BIS proposals and accepted item snapshots persist in SQLite. Explicit
+// raider replacements are recorded separately so edits retain an audit trail.
+db.exec(`CREATE TABLE IF NOT EXISTS wow_bis_lists (
+  id TEXT PRIMARY KEY,
+  guild_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  character_id TEXT,
+  character_name TEXT NOT NULL,
+  realm_slug TEXT NOT NULL,
+  class_id TEXT,
+  class_name TEXT,
+  spec_id TEXT,
+  spec_name TEXT,
+  activity TEXT NOT NULL,
+  status TEXT NOT NULL,
+  channel_id TEXT NOT NULL,
+  message_id TEXT,
+  sources_json TEXT NOT NULL DEFAULT '[]',
+  source_urls_json TEXT NOT NULL DEFAULT '[]',
+  page_url TEXT,
+  fetched_at TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  decided_at TEXT,
+  accepted_by_user_id TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_wow_bis_lists_member ON wow_bis_lists(guild_id, user_id, created_at DESC);
+CREATE TABLE IF NOT EXISTS wow_bis_list_items (
+  list_id TEXT NOT NULL REFERENCES wow_bis_lists(id) ON DELETE CASCADE,
+  ordinal INTEGER NOT NULL,
+  slot TEXT NOT NULL,
+  slot_name TEXT NOT NULL,
+  item_id INTEGER NOT NULL,
+  item_name TEXT NOT NULL,
+  rank INTEGER NOT NULL,
+  score REAL NOT NULL,
+  source_type TEXT,
+  source_id INTEGER,
+  source_name TEXT NOT NULL,
+  wowhead_url TEXT NOT NULL,
+  PRIMARY KEY (list_id, ordinal)
+);
+CREATE TABLE IF NOT EXISTS wow_bis_current (
+  guild_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  list_id TEXT NOT NULL UNIQUE REFERENCES wow_bis_lists(id),
+  PRIMARY KEY (guild_id, user_id)
+);
+CREATE TABLE IF NOT EXISTS wow_bis_item_edits (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  list_id TEXT NOT NULL REFERENCES wow_bis_lists(id),
+  ordinal INTEGER NOT NULL,
+  actor_user_id TEXT NOT NULL,
+  old_item_id INTEGER NOT NULL,
+  old_item_name TEXT NOT NULL,
+  old_source_name TEXT NOT NULL,
+  new_item_id INTEGER NOT NULL,
+  new_item_name TEXT NOT NULL,
+  new_source_name TEXT NOT NULL,
+  edited_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);`);
+
+export function createBisProposal(proposal) {
+  const create = db.transaction(() => {
+    db.prepare(`UPDATE wow_bis_lists SET status='superseded', decided_at=CURRENT_TIMESTAMP
+      WHERE guild_id=? AND user_id=? AND status IN ('awaiting_spec','building','pending')`)
+      .run(proposal.guildId, proposal.userId);
+    db.prepare(`INSERT INTO wow_bis_lists
+      (id, guild_id, user_id, character_id, character_name, realm_slug, class_id, class_name, activity, status, channel_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'awaiting_spec', ?)`)
+      .run(proposal.id, proposal.guildId, proposal.userId, proposal.characterId, proposal.characterName,
+        proposal.realmSlug, proposal.classId, proposal.className, proposal.activity, proposal.channelId);
+  });
+  create.immediate();
+}
+
+export function setBisProposalMessage(id, messageId) {
+  return db.prepare('UPDATE wow_bis_lists SET message_id=? WHERE id=? AND status=\'awaiting_spec\'').run(messageId, id).changes === 1;
+}
+
+export function getBisProposal(id) {
+  const proposal = db.prepare('SELECT * FROM wow_bis_lists WHERE id=?').get(id) || null;
+  if (!proposal) return null;
+  return {
+    ...proposal,
+    sources: JSON.parse(proposal.sources_json || '[]'),
+    sourceUrls: JSON.parse(proposal.source_urls_json || '[]'),
+    sourceIds: JSON.parse(proposal.sources_json || '[]'),
+    fetchedAt: proposal.fetched_at,
+    pageUrl: proposal.page_url,
+    className: proposal.class_name,
+    specName: proposal.spec_name,
+    activityName: ({ overall: 'General', raid: 'Raid', mythic_plus: 'M+' })[proposal.activity] || proposal.activity,
+    items: db.prepare('SELECT slot, slot_name AS slotName, item_id AS itemId, item_name AS itemName, rank, score, source_type AS sourceType, source_id AS sourceId, source_name AS sourceName, wowhead_url AS wowheadUrl FROM wow_bis_list_items WHERE list_id=? ORDER BY ordinal').all(id)
+  };
+}
+
+export function saveBisProposalList(id, bisList) {
+  const save = db.transaction(() => {
+    const updated = db.prepare(`UPDATE wow_bis_lists SET class_id=?, class_name=?, spec_id=?, spec_name=?,
+      sources_json=?, source_urls_json=?, page_url=?, fetched_at=?, status='pending'
+      WHERE id=? AND status IN ('awaiting_spec','building')`).run(
+      bisList.classId, bisList.className, bisList.specId, bisList.specName,
+      JSON.stringify(bisList.sourceIds), JSON.stringify(bisList.sourceUrls), bisList.pageUrl,
+      bisList.fetchedAt, id
+    );
+    if (updated.changes !== 1) return false;
+    const insert = db.prepare(`INSERT INTO wow_bis_list_items
+      (list_id, ordinal, slot, slot_name, item_id, item_name, rank, score, source_type, source_id, source_name, wowhead_url)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    bisList.items.forEach((item, ordinal) => insert.run(id, ordinal, item.slot, item.slotName,
+      item.itemId, item.itemName, item.rank, item.score, item.sourceType, item.sourceId,
+      item.sourceName, item.wowheadUrl));
+    return true;
+  });
+  return save.immediate();
+}
+
+export function markBisProposalBuilding(id) {
+  return db.prepare(`UPDATE wow_bis_lists SET status='building' WHERE id=? AND status='awaiting_spec'`).run(id).changes === 1;
+}
+
+export function markBisProposalFailed(id) {
+  return db.prepare(`UPDATE wow_bis_lists SET status='failed', decided_at=CURRENT_TIMESTAMP
+    WHERE id=? AND status IN ('awaiting_spec','building','pending')`).run(id).changes === 1;
+}
+
+export function acceptBisProposal(guildId, userId, id) {
+  const accept = db.transaction(() => {
+    const proposal = db.prepare(`SELECT id FROM wow_bis_lists WHERE id=? AND guild_id=? AND user_id=? AND status='pending'`).get(id, guildId, userId);
+    if (!proposal) return false;
+    const previous = db.prepare('SELECT list_id FROM wow_bis_current WHERE guild_id=? AND user_id=?').get(guildId, userId);
+    if (previous) db.prepare(`UPDATE wow_bis_lists SET status='superseded' WHERE id=?`).run(previous.list_id);
+    db.prepare('DELETE FROM wow_bis_current WHERE guild_id=? AND user_id=?').run(guildId, userId);
+    db.prepare(`UPDATE wow_bis_lists SET status='accepted', decided_at=CURRENT_TIMESTAMP, accepted_by_user_id=? WHERE id=?`).run(userId, id);
+    db.prepare('INSERT INTO wow_bis_current (guild_id, user_id, list_id) VALUES (?, ?, ?)').run(guildId, userId, id);
+    return true;
+  });
+  return accept.immediate();
+}
+
+export function rejectBisProposal(guildId, userId, id) {
+  const reject = db.transaction(() => {
+    const proposal = db.prepare(`SELECT id FROM wow_bis_lists WHERE id=? AND guild_id=? AND user_id=? AND status='pending'`).get(id, guildId, userId);
+    if (!proposal) return false;
+    const previous = db.prepare('SELECT list_id FROM wow_bis_current WHERE guild_id=? AND user_id=?').get(guildId, userId);
+    if (previous) db.prepare(`UPDATE wow_bis_lists SET status='cleared' WHERE id=?`).run(previous.list_id);
+    db.prepare('DELETE FROM wow_bis_current WHERE guild_id=? AND user_id=?').run(guildId, userId);
+    db.prepare(`UPDATE wow_bis_lists SET status='rejected', decided_at=CURRENT_TIMESTAMP WHERE id=?`).run(id);
+    return true;
+  });
+  return reject.immediate();
+}
+
+export function getCurrentBisList(guildId, userId) {
+  const row = db.prepare(`SELECT l.* FROM wow_bis_current c JOIN wow_bis_lists l ON l.id=c.list_id
+    WHERE c.guild_id=? AND c.user_id=? AND l.status='accepted'`).get(guildId, userId);
+  return row ? getBisProposal(row.id) : null;
+}
+
+export function updateBisListItem(guildId, userId, listId, ordinal, replacement) {
+  const update = db.transaction(() => {
+    const list = db.prepare(`SELECT id FROM wow_bis_lists l WHERE id=? AND guild_id=? AND user_id=?
+      AND (status='pending' OR (status='accepted' AND EXISTS (
+        SELECT 1 FROM wow_bis_current c WHERE c.list_id=l.id AND c.guild_id=l.guild_id AND c.user_id=l.user_id
+      )))`).get(listId, guildId, userId);
+    if (!list) return null;
+    const previous = db.prepare(`SELECT item_id AS itemId, item_name AS itemName, source_name AS sourceName
+      FROM wow_bis_list_items WHERE list_id=? AND ordinal=?`).get(listId, ordinal);
+    if (!previous) return null;
+    db.prepare(`INSERT INTO wow_bis_item_edits
+      (list_id, ordinal, actor_user_id, old_item_id, old_item_name, old_source_name, new_item_id, new_item_name, new_source_name)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(listId, ordinal, userId, previous.itemId, previous.itemName, previous.sourceName,
+        replacement.itemId, replacement.itemName, replacement.sourceName);
+    db.prepare(`UPDATE wow_bis_list_items SET item_id=?, item_name=?, score=0, source_type='manual', source_id=NULL,
+      source_name=?, wowhead_url=? WHERE list_id=? AND ordinal=?`)
+      .run(replacement.itemId, replacement.itemName, replacement.sourceName, replacement.wowheadUrl, listId, ordinal);
+    return { ...previous, slotName: db.prepare('SELECT slot_name AS slotName FROM wow_bis_list_items WHERE list_id=? AND ordinal=?').get(listId, ordinal).slotName };
+  });
+  return update.immediate();
+}
+
 db.exec(`CREATE TABLE IF NOT EXISTS wowaudit_loot_destinations (
   guild_id TEXT PRIMARY KEY, channel_id TEXT NOT NULL
 )`);

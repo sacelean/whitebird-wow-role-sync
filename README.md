@@ -12,6 +12,7 @@ Bot de Discord independiente para vincular mains del roster de la guild en Blizz
 6. Los oficiales consultan `/wow-vinculaciones` para ver los vínculos guardados, el rol de rango que tiene cada miembro y el canal privado de Raider cuando se conoce. Los vínculos se ordenan del rango más alto al más bajo (el rol por defecto aparece al final), seguidos por personajes del roster sin vincular y propuestas pendientes.
 7. `/wow-sincronizar-revisar` muestra los cambios previstos y exige confirmación; `/wow-sync-usuario` sincroniza solo una persona. `/wow-auditoria` revisa roles, vínculos, roster, canales y calderos. `/wow-historial` consulta los cambios de roles guardados.
 8. `/wow-calderos-vista` enseña el reparto actual en privado. `/wow-caldero-probar dia tipo` envía un aviso de prueba al canal Raider de la persona asignada.
+9. Un oficial puede ejecutar `/wow-bis-proponer raider actividad` para enviar una propuesta BIS al canal Raider vinculado. El raider elige especialización, revisa objetos y procedencia y acepta o rechaza. Solo la aceptación guarda una lista activa en Whitebird.
 
 Las vinculaciones se guardan en `data/whitebird-wow-roles.sqlite`, incluidos el ID de usuario de Discord, main, reino y, si se creó con el bot de recruitment, el ID del canal personal de Raider. Se guarda el ID del canal para que el vínculo siga siendo correcto aunque se cambie su nombre. Blizzard valida que el personaje forma parte del roster y proporciona el rango; la API de perfil de Blizzard proporciona las profesiones. Los acentos cuentan como parte del nombre: `Agô` y `Agó` se consideran personajes distintos, también en la búsqueda automática. Al vincular manualmente, el nombre debe coincidir respetando sus acentos y el bot guarda la grafía exacta del roster de Blizzard. Si Blizzard no tiene profesiones disponibles, el bot conserva los roles de profesión que ya tuviera esa persona.
 
@@ -65,7 +66,7 @@ Las propuestas pendientes de `/wow-vincular-auto` se guardan temporalmente en me
 
 ## Pruebas automáticas
 
-El proyecto incluye pruebas de la sincronización de rangos y profesiones, salidas del roster y de Discord, conservación de roles cuando Blizzard falla, nombres con acentos, renombrado de canales Raider, avisos diarios y sus horarios, persistencia de vinculaciones y calderos, y recuperación del panel si se borró el mensaje guardado. No necesitan credenciales reales ni hacen llamadas a Discord o Blizzard.
+El proyecto incluye pruebas de la sincronización de rangos y profesiones, salidas del roster y de Discord, conservación de roles cuando Blizzard falla, nombres con acentos, renombrado de canales Raider, avisos diarios y sus horarios, persistencia de vinculaciones y calderos, propuestas y decisiones BIS, y recuperación de paneles. No necesitan credenciales reales ni hacen llamadas a servicios externos.
 
 Ejecuta las pruebas dentro del contenedor:
 
@@ -134,6 +135,14 @@ WOWAUDIT_LOOT_RANKS=Oficiales,Fijo,Rotativo
 
 La clave selecciona el equipo de WoWAudit. Guarda `.env` solo en el servidor (`chmod 600 .env`); nunca en Git ni en la imagen. El bot necesita Ver canal y Enviar mensajes en el destino. La integración requiere la clave. Elige el destino con `/wow-loot-actualizar canal:#tu-canal`; tras publicar correctamente se guarda en SQLite para las siguientes actualizaciones, también las semanales y tras reiniciar. El parámetro `canal` es opcional cuando ya hay un destino guardado. Sin destino, el proceso semanal espera a que se seleccione uno. No hay nombres predeterminados. El bot necesita también Leer historial de mensajes e Insertar enlaces. Sin configuración WoWAudit queda desactivada; errores de configuración no detienen Blizzard.
 
+### Propuestas de listas BIS para raiders
+
+Un oficial ejecuta `/wow-bis-proponer raider:@miembro actividad:Raid` (también están disponibles General y Mítico+). El miembro debe tener un personaje main vinculado y un canal Raider asociado; el bot obtiene su clase del roster de WoWAudit. En el canal Raider, el destinatario elige especialización. El bot publica la lista de Blingtron con los objetos enlazados a Wowhead y la fuente indicada (jefe, mazmorra u objeto de origen), y deja botones para editar, aceptar o rechazar. Solo ese usuario puede usar los controles. Para editar, selecciona el objeto/slot y escribe el nombre, ID de Wowhead y procedencia del reemplazo; el embed y la lista guardada se actualizan y la sustitución queda marcada como manual.
+
+Al aceptar, Whitebird guarda en SQLite la especialización, actividad, objetos, fuentes y datos de la guía como una lista asociada al raider; esa lista pasa a ser su lista activa. Los reemplazos que haga el raider actualizan la lista activa y se guardan en el historial de ediciones. Al rechazar, Whitebird borra la referencia activa del raider y conserva el registro de la decisión. La lista activa anterior también deja de estar activa al rechazar una nueva propuesta. Si se crea otra propuesta antes de decidir la anterior, la anterior caduca.
+
+Las listas proceden de los datos públicos de [Blingtron](https://blingtron.app/gearing), no son una simulación personalizada ni una wishlist de WoWAudit. La API pública documentada de WoWAudit no ofrece una operación para crear wishlists arbitrarias, por lo que aceptar la lista la guarda en la base de Whitebird pero no la sube a WoWAudit. La selección requiere `WOWAUDIT_API_KEY` para consultar la clase del personaje y que WoWAudit devuelva una ficha única del main vinculado. El bot necesita Ver canal, Enviar mensajes e Insertar enlaces en cada canal Raider.
+
 El informe de loot y el **resumen de raiders** son dos mensajes separados, cada uno con su propio ID y estado. El resumen muestra bóveda de la semana, nivel medio calculado a partir de `best_gear`, asistencia del período, loot por categoría y objetos por raid asistida. Ambos se publican en el destino guardado y se actualizan los miércoles a las 20:00. Para actualizar solo la tabla al momento, usa `/wow-raiders-actualizar canal:#tu-canal`; comparte el destino guardado con el informe de loot.
 
 ### Avisos privados de encantamientos y gemas
@@ -157,6 +166,7 @@ Se deduplica por `id` y por `rclootcouncil_id` cuando existe; duplicados con des
 ```sh
 docker compose build
 docker compose run --rm bot npm test
+docker compose run --rm bot npm run register
 docker compose up -d
 docker compose logs --tail=100 bot
 ```

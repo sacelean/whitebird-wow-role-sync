@@ -9,6 +9,10 @@ process.env.DATABASE_PATH = join(testDirectory, 'test.sqlite');
 
 const {
   db,
+  acceptBisProposal,
+  createBisProposal,
+  getBisProposal,
+  getCurrentBisList,
   getLootDestination,
   setLootDestination,
   getLootPanel,
@@ -21,7 +25,11 @@ const {
   getCauldronPanel,
   getWowLinks,
   getWowSyncHistory,
+  markBisProposalBuilding,
+  rejectBisProposal,
   recordWowSyncChanges,
+  saveBisProposalList,
+  updateBisListItem,
   saveWowLink,
   seedCauldronAssignments,
   setCauldronAssignment,
@@ -37,6 +45,39 @@ test('la base conserva el canal Raider al actualizar el vínculo y permite cambi
   saveWowLink('g1', 'u1', 'Main', 'sanguino', 'raider-channel');
   saveWowLink('g1', 'u1', 'Renombrado', 'sanguino');
   assert.deepEqual(getWowLinks('g1'), [{ user_id: 'u1', character_name: 'Renombrado', realm_slug: 'sanguino', raider_channel_id: 'raider-channel' }]);
+});
+
+test('guarda una propuesta BIS aceptada con sus objetos; rechazar otra limpia la lista activa', () => {
+  const makeProposal = (id) => createBisProposal({
+    id, guildId: 'bis-g', userId: 'bis-u', characterId: 'char-1', characterName: 'Main',
+    realmSlug: 'sanguino', classId: 'priest', className: 'Priest', activity: 'raid', channelId: 'raider-c'
+  });
+  const list = {
+    classId: 'priest', className: 'Priest', specId: 'holy', specName: 'Holy',
+    activity: 'raid', activityName: 'Raid', sourceIds: ['method'], sourceUrls: [],
+    pageUrl: 'https://blingtron.app/gearing/priest/holy', fetchedAt: null,
+    items: [{ slot: 'head', slotName: 'Cabeza', rank: 1, itemId: 123, itemName: 'Test Helm', score: 100,
+      sourceType: 'raid', sourceId: 456, sourceName: 'Boss', wowheadUrl: 'https://www.wowhead.com/item=123' }]
+  };
+
+  makeProposal('bis-accepted');
+  assert.equal(markBisProposalBuilding('bis-accepted'), true);
+  assert.equal(saveBisProposalList('bis-accepted', list), true);
+  assert.equal(acceptBisProposal('bis-g', 'bis-u', 'bis-accepted'), true);
+  assert.equal(getCurrentBisList('bis-g', 'bis-u').id, 'bis-accepted');
+  assert.equal(getCurrentBisList('bis-g', 'bis-u').items[0].sourceName, 'Boss');
+  assert.deepEqual(updateBisListItem('bis-g', 'bis-u', 'bis-accepted', 0, {
+    itemId: 124, itemName: 'Replacement Helm', sourceName: 'Vault', wowheadUrl: 'https://www.wowhead.com/item=124'
+  }), { itemId: 123, itemName: 'Test Helm', sourceName: 'Boss', slotName: 'Cabeza' });
+  assert.equal(getCurrentBisList('bis-g', 'bis-u').items[0].itemName, 'Replacement Helm');
+  assert.equal(db.prepare('SELECT actor_user_id, old_item_id, new_item_id FROM wow_bis_item_edits WHERE list_id=?').get('bis-accepted').new_item_id, 124);
+
+  makeProposal('bis-rejected');
+  assert.equal(saveBisProposalList('bis-rejected', list), true);
+  assert.equal(rejectBisProposal('bis-g', 'bis-u', 'bis-rejected'), true);
+  assert.equal(getCurrentBisList('bis-g', 'bis-u'), null);
+  assert.equal(getBisProposal('bis-accepted').status, 'cleared');
+  assert.equal(getBisProposal('bis-rejected').status, 'rejected');
 });
 
 test('precarga calderos una sola vez y actualiza asignaciones y panel', () => {

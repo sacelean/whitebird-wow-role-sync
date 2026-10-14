@@ -3,6 +3,8 @@ import { updateLootPanel } from './loot-panel.js';
 import { startLootScheduler } from './loot-scheduler.js';
 import { startGearReminderScheduler } from './gear-reminders.js';
 import { getLootConfig, fetchLootReport, fetchRaiderTableReport, lootErrorMessage } from './wowaudit.js';
+import { auditGet } from './wowaudit.js';
+import { BisListError, buildBisList, fetchBlingClasses, formatBisProposal } from './bis-lists.js';
 import { randomUUID } from 'node:crypto';
 import {
   ActionRowBuilder,
@@ -12,13 +14,25 @@ import {
   Events,
   GatewayIntentBits,
   MessageFlags,
+  ModalBuilder,
   PermissionFlagsBits,
-  StringSelectMenuBuilder
+  StringSelectMenuBuilder,
+  TextInputBuilder,
+  TextInputStyle
 } from 'discord.js';
 import {
   lootPanelStore,
   raiderPanelStore,
+  acceptBisProposal,
   getLootDestination,
+  getBisProposal,
+  createBisProposal,
+  markBisProposalBuilding,
+  markBisProposalFailed,
+  rejectBisProposal,
+  saveBisProposalList,
+  setBisProposalMessage,
+  updateBisListItem,
   setLootDestination,
   getCauldronAssignments,
   getCauldronPanel,
@@ -88,6 +102,213 @@ function syncConfirmationRow(nonce) {
     new ButtonBuilder().setCustomId(`wow-sync-confirm:${nonce}`).setLabel('Confirmar sincronización').setStyle(ButtonStyle.Danger),
     new ButtonBuilder().setCustomId(`wow-sync-cancel:${nonce}`).setLabel('Cancelar').setStyle(ButtonStyle.Secondary)
   );
+}
+
+function bisSpecRow(proposalId, specs) {
+  return new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId(`wow-bis-spec:${proposalId}`)
+      .setPlaceholder('Elige la especialización de tu personaje')
+      .setMinValues(1)
+      .setMaxValues(1)
+      .addOptions(specs.map((spec) => ({ label: spec.name.slice(0, 100), value: spec.id, description: spec.role || undefined })))
+  );
+}
+
+function bisDecisionRow(proposalId) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`wow-bis-edit:${proposalId}`).setLabel('Editar objeto').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`wow-bis-accept:${proposalId}`).setLabel('Aceptar lista').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`wow-bis-reject:${proposalId}`).setLabel('Rechazar lista').setStyle(ButtonStyle.Danger)
+  );
+}
+
+function bisActiveRow(proposalId) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`wow-bis-edit:${proposalId}`).setLabel('Editar objeto').setStyle(ButtonStyle.Primary)
+  );
+}
+
+function bisEditMenu(proposal, page = 0) {
+  const pageSize = 25;
+  const start = page * pageSize;
+  const items = proposal.items.slice(start, start + pageSize);
+  const rows = [new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId(`wow-bis-edit-item:${proposal.id}`)
+      .setPlaceholder('Elige el objeto BIS que vas a sustituir')
+      .setMinValues(1)
+      .setMaxValues(1)
+      .addOptions(items.map((item, index) => ({
+        label: `${item.itemName}`.slice(0, 100),
+        description: `${item.slotName} · opción ${item.rank}`.slice(0, 100),
+        value: String(start + index)
+      })))
+  )];
+  if (proposal.items.length > pageSize) {
+    const lastPage = Math.ceil(proposal.items.length / pageSize) - 1;
+    rows.push(new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`wow-bis-edit-page:${proposal.id}:${page - 1}`).setLabel('Anterior').setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
+      new ButtonBuilder().setCustomId(`wow-bis-edit-page:${proposal.id}:${page + 1}`).setLabel('Siguiente').setStyle(ButtonStyle.Secondary).setDisabled(page === lastPage)
+    ));
+  }
+  return rows;
+}
+
+function bisEditModal(proposalId, ordinal, currentItem) {
+  const modal = new ModalBuilder()
+    .setCustomId(`wow-bis-edit-submit:${proposalId}:${ordinal}`)
+    .setTitle('Sustituir objeto BIS');
+  const name = new TextInputBuilder().setCustomId('name').setLabel('Nombre del objeto').setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(true).setValue(currentItem.itemName.slice(0, 100));
+  const itemId = new TextInputBuilder().setCustomId('item-id').setLabel('ID numérico de Wowhead').setStyle(TextInputStyle.Short).setMaxLength(12).setRequired(true).setValue(String(currentItem.itemId));
+  const source = new TextInputBuilder().setCustomId('source').setLabel('Dónde se obtiene').setStyle(TextInputStyle.Short).setMaxLength(100).setRequired(true).setValue(currentItem.sourceName.slice(0, 100));
+  modal.addComponents(
+    new ActionRowBuilder().addComponents(name),
+    new ActionRowBuilder().addComponents(itemId),
+    new ActionRowBuilder().addComponents(source)
+  );
+  return modal;
+}
+
+const rosterKey = (value) => String(value || '').normalize('NFKD').replace(/\p{M}/gu, '').toLocaleLowerCase('en-US').replace(/[^\p{L}\p{N}]/gu, '');
+
+async function handleBisComponent(interaction) {
+  const match = interaction.customId.match(/^wow-bis-(spec|accept|reject|edit|edit-item|edit-page|edit-submit):([0-9a-f-]{36})(?::(\d+))?$/);
+  if (!match) return;
+  const [, action, proposalId, indexText] = match;
+  const proposal = getBisProposal(proposalId);
+  if (!proposal || proposal.guild_id !== interaction.guildId || proposal.channel_id !== interaction.channelId) {
+    return interaction.reply({ content: 'Esta propuesta BIS ya no está disponible.', flags: MessageFlags.Ephemeral });
+  }
+  const fromProposalMessage = ['spec', 'accept', 'reject', 'edit'].includes(action);
+  if (fromProposalMessage && proposal.message_id !== interaction.message?.id) {
+    return interaction.reply({ content: 'Esta propuesta BIS ya no está disponible.', flags: MessageFlags.Ephemeral });
+  }
+  if (interaction.user.id !== proposal.user_id) {
+    return interaction.reply({ content: 'Solo el raider destinatario puede elegir especialización y aceptar o rechazar su lista.', flags: MessageFlags.Ephemeral });
+  }
+
+  if (action === 'edit') {
+    if (!interaction.isButton() || !['pending', 'accepted'].includes(proposal.status)) {
+      return interaction.reply({ content: 'Solo se puede editar una propuesta pendiente o la lista activa.', flags: MessageFlags.Ephemeral });
+    }
+    return interaction.reply({ content: 'Elige qué objeto quieres sustituir. La edición conservará el slot y actualizará la lista.', components: bisEditMenu(proposal), flags: MessageFlags.Ephemeral });
+  }
+
+  if (action === 'edit-page') {
+    const page = Number(indexText);
+    const lastPage = Math.ceil(proposal.items.length / 25) - 1;
+    if (!interaction.isButton() || !['pending', 'accepted'].includes(proposal.status) || !Number.isInteger(page) || page < 0 || page > lastPage) {
+      return interaction.reply({ content: 'La selección de edición ya no está disponible.', flags: MessageFlags.Ephemeral });
+    }
+    return interaction.update({ components: bisEditMenu(proposal, page) });
+  }
+
+  if (action === 'edit-item') {
+    if (!interaction.isStringSelectMenu() || !['pending', 'accepted'].includes(proposal.status)) {
+      return interaction.reply({ content: 'Esta lista ya no se puede editar desde esta propuesta.', flags: MessageFlags.Ephemeral });
+    }
+    const ordinal = Number(interaction.values[0]);
+    const currentItem = proposal.items[ordinal];
+    if (!Number.isInteger(ordinal) || !currentItem) return interaction.reply({ content: 'No se encontró ese objeto en la lista.', flags: MessageFlags.Ephemeral });
+    return interaction.showModal(bisEditModal(proposalId, ordinal, currentItem));
+  }
+
+  if (action === 'edit-submit') {
+    const ordinal = Number(indexText);
+    if (!interaction.isModalSubmit() || !['pending', 'accepted'].includes(proposal.status) || !Number.isInteger(ordinal) || !proposal.items[ordinal]) {
+      return interaction.reply({ content: 'La edición ya no está disponible; vuelve a abrir la lista.', flags: MessageFlags.Ephemeral });
+    }
+    const itemName = interaction.fields.getTextInputValue('name').trim().replace(/\s+/g, ' ');
+    const rawItemId = interaction.fields.getTextInputValue('item-id').trim();
+    const sourceName = interaction.fields.getTextInputValue('source').trim().replace(/\s+/g, ' ');
+    const itemId = Number(rawItemId);
+    if (!itemName || itemName.length > 100 || !sourceName || sourceName.length > 100 || !/^\d{1,12}$/.test(rawItemId) || !Number.isSafeInteger(itemId) || itemId <= 0) {
+      return interaction.reply({ content: 'Revisa el nombre, el ID numérico de Wowhead y la procedencia. No se cambió la lista.', flags: MessageFlags.Ephemeral });
+    }
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const previous = updateBisListItem(proposal.guild_id, proposal.user_id, proposalId, ordinal, {
+      itemId,
+      itemName,
+      sourceName,
+      wowheadUrl: `https://www.wowhead.com/item=${itemId}`
+    });
+    if (!previous) return interaction.editReply('La lista dejó de estar activa o pendiente. No se cambió ningún objeto.');
+
+    const updated = getBisProposal(proposalId);
+    const embed = formatBisProposal(updated, updated.character_name);
+    const accepted = updated.status === 'accepted';
+    if (accepted) {
+      embed.color = 0x36a66d;
+      embed.footer = { text: `Lista BIS aceptada por <@${updated.user_id}> · incluye sustituciones elegidas por el raider.` };
+    }
+    try {
+      const channel = await client.channels.fetch(updated.channel_id);
+      const message = await channel.messages.fetch(updated.message_id);
+      await message.edit({
+        embeds: [embed],
+        components: [accepted ? bisActiveRow(proposalId) : bisDecisionRow(proposalId)],
+        allowedMentions: { parse: [] }
+      });
+      return interaction.editReply(`Actualizado **${previous.slotName}**: **${previous.itemName}** se sustituyó por **${itemName}** (${sourceName}). El embed y la lista guardada ya reflejan el cambio.`);
+    } catch (error) {
+      console.error(`[BIS] La sustitución se guardó, pero no se confirmó la actualización del mensaje ${updated.message_id}: ${error.message}`);
+      return interaction.editReply(`La sustitución quedó guardada en la lista, pero Discord no confirmó la actualización del embed. Revisa el canal antes de volver a editar.`);
+    }
+  }
+
+  if (action === 'spec') {
+    if (!interaction.isStringSelectMenu() || proposal.status !== 'awaiting_spec') {
+      return interaction.reply({ content: 'La selección de especialización ya no está activa.', flags: MessageFlags.Ephemeral });
+    }
+    const specId = interaction.values[0];
+    if (!markBisProposalBuilding(proposalId)) {
+      return interaction.reply({ content: 'La propuesta ya se está preparando o ha caducado.', flags: MessageFlags.Ephemeral });
+    }
+    try {
+      await interaction.update({ content: 'Preparando la lista BIS con los objetos y sus fuentes…', components: [] });
+      const bisList = await buildBisList({ className: proposal.class_name, specId, activity: proposal.activity });
+      if (!saveBisProposalList(proposalId, bisList)) throw new BisListError('La propuesta ya no está pendiente; no se guardó la lista.');
+      await interaction.message.edit({
+        content: `<@${proposal.user_id}> Revisa la propuesta BIS y confirma si quieres guardarla como tu lista activa.`,
+        embeds: [formatBisProposal(bisList, proposal.character_name)],
+        components: [bisDecisionRow(proposalId)],
+        allowedMentions: { users: [proposal.user_id] }
+      });
+    } catch (error) {
+      markBisProposalFailed(proposalId);
+      console.error(`[BIS] No se pudo preparar lista ${proposalId}: ${error.message}`);
+      await interaction.message.edit({
+        content: `No se pudo preparar la lista BIS para **${proposal.character_name}**. ${error instanceof BisListError ? error.message : 'Error interno al consultar Blingtron.'}`,
+        embeds: [], components: [], allowedMentions: { parse: [] }
+      });
+    }
+    return;
+  }
+
+  if (!interaction.isButton() || proposal.status !== 'pending') {
+    return interaction.reply({ content: 'Esta lista ya no está pendiente de decisión.', flags: MessageFlags.Ephemeral });
+  }
+  if (action === 'accept') {
+    if (!acceptBisProposal(proposal.guild_id, proposal.user_id, proposalId)) {
+      return interaction.reply({ content: 'No se pudo confirmar la lista porque la propuesta ya no está pendiente.', flags: MessageFlags.Ephemeral });
+    }
+    const embed = formatBisProposal(proposal, proposal.character_name);
+    embed.color = 0x36a66d;
+    embed.footer = { text: `Lista BIS aceptada por <@${proposal.user_id}> · incluye sustituciones elegidas por el raider.` };
+    return interaction.update({
+      content: `✅ **${proposal.character_name}** ha aceptado esta lista BIS. Está guardada como su lista activa en Whitebird.`,
+      embeds: [embed], components: [bisActiveRow(proposalId)], allowedMentions: { parse: [] }
+    });
+  }
+
+  if (!rejectBisProposal(proposal.guild_id, proposal.user_id, proposalId)) {
+    return interaction.reply({ content: 'No se pudo rechazar la lista porque la propuesta ya no está pendiente.', flags: MessageFlags.Ephemeral });
+  }
+  return interaction.update({
+    content: `❌ **${proposal.character_name}** ha rechazado la lista. No tiene ninguna lista BIS activa guardada en Whitebird.`,
+    embeds: [], components: [], allowedMentions: { parse: [] }
+  });
 }
 
 async function handleSyncPreviewComponent(interaction) {
@@ -506,9 +727,69 @@ client.on(Events.InteractionCreate, async (interaction) => {
       (interaction.isButton() && interaction.customId.startsWith('wow-link-'));
     if (isLinkComponent) return await handleLinkComponent(interaction);
     if (interaction.isButton() && interaction.customId.startsWith('wow-sync-')) return await handleSyncPreviewComponent(interaction);
+    if ((interaction.isStringSelectMenu() || interaction.isButton() || interaction.isModalSubmit()) && interaction.customId.startsWith('wow-bis-')) return await handleBisComponent(interaction);
     if (!interaction.isChatInputCommand()) return;
     if (interaction.guildId !== guildId) {
       return interaction.reply({ content: 'Este bot solo está configurado para su servidor de Whitebird.', flags: MessageFlags.Ephemeral });
+    }
+
+    if (interaction.commandName === 'wow-bis-proponer') {
+      if (!isOfficer(interaction)) return interaction.reply(unauthorizedReply());
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      let proposalId = null;
+      try {
+        const config = getLootConfig();
+        if (!config) return interaction.editReply('WoWAudit está desactivado. Configura `WOWAUDIT_API_KEY` para identificar la clase del personaje.');
+        const target = interaction.options.getUser('raider', true);
+        const activity = interaction.options.getString('actividad', true);
+        const link = getWowLinks(guildId).find((item) => item.user_id === target.id);
+        if (!link?.raider_channel_id) return interaction.editReply(`**${target.username}** no tiene el main y el canal Raider vinculados. Comprueba `/wow-vinculaciones`.`);
+
+        const channel = await interaction.guild.channels.fetch(link.raider_channel_id).catch(() => null);
+        if (!channel?.isTextBased() || typeof channel.send !== 'function') return interaction.editReply(`No puedo acceder al canal Raider de **${link.character_name}**.`);
+        const characters = await auditGet('/v1/characters', config.apiKey);
+        if (!Array.isArray(characters)) throw new BisListError('WoWAudit: /v1/characters no devolvió el roster esperado.');
+        const matches = characters.filter((character) => rosterKey(character.name) === rosterKey(link.character_name) && rosterKey(character.realm) === rosterKey(link.realm_slug));
+        if (matches.length !== 1) throw new BisListError(`WoWAudit: no se encontró una única ficha para ${link.character_name} · ${link.realm_slug}.`);
+        const character = matches[0];
+        if (typeof character.class !== 'string' || !character.class.trim()) throw new BisListError(`WoWAudit no publica la clase de ${link.character_name}; no puedo elegir su lista BIS.`);
+
+        const classes = await fetchBlingClasses();
+        const normalizedClass = rosterKey(character.class);
+        const classEntry = classes.find((entry) => rosterKey(entry.name) === normalizedClass || rosterKey(entry.id) === normalizedClass);
+        if (!classEntry) throw new BisListError(`Blingtron no reconoce la clase «${character.class}» de ${link.character_name}.`);
+
+        proposalId = randomUUID();
+        createBisProposal({
+          id: proposalId,
+          guildId,
+          userId: target.id,
+          characterId: String(character.id),
+          characterName: link.character_name,
+          realmSlug: link.realm_slug,
+          classId: classEntry.id,
+          className: classEntry.name,
+          activity,
+          channelId: channel.id
+        });
+        const message = await channel.send({
+          content: `<@${target.id}> Tienes una propuesta de lista BIS para **${link.character_name}** · ${classEntry.name}. Elige tu especialización; después podrás revisar la lista y aceptarla o rechazarla.`,
+          components: [bisSpecRow(proposalId, classEntry.specs)],
+          allowedMentions: { users: [target.id] }
+        });
+        if (!setBisProposalMessage(proposalId, message.id)) {
+          await message.edit({ content: 'No se pudo guardar la referencia de esta propuesta; avisa a un oficial antes de usarla.', components: [], allowedMentions: { parse: [] } });
+          throw new BisListError('No se pudo guardar la referencia del mensaje.');
+        }
+        return interaction.editReply({
+          content: `Propuesta enviada al canal Raider de **${link.character_name}** (${activity}). La lista aún no está activa; el raider deberá seleccionar especialización y aceptarla.\nhttps://discord.com/channels/${guildId}/${channel.id}/${message.id}`,
+          allowedMentions: { parse: [] }
+        });
+      } catch (error) {
+        if (proposalId) markBisProposalFailed(proposalId);
+        console.error(`[BIS] No se pudo iniciar propuesta${proposalId ? ` ${proposalId}` : ''}: ${error.message}`);
+        return interaction.editReply({ content: `No se pudo iniciar la propuesta BIS. ${error instanceof BisListError ? error.message : 'Revisa la configuración de WoWAudit, el acceso al canal y los logs del bot.'}`, allowedMentions: { parse: [] } });
+      }
     }
 
     if (interaction.commandName === 'wow-loot-actualizar') {
