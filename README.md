@@ -47,11 +47,13 @@ Los rangos son las posiciones numéricas del roster de Blizzard (0 es Guild Mast
 
 La sincronización automática diaria se configura con `WOW_SYNC_HOUR` (hora de 0 a 23) y `WOW_SYNC_TIMEZONE` (zona IANA, por ejemplo `Europe/Madrid`). `/syncwow` también mantiene los canales asociados con el formato `rol-nombre-reino`: obtiene el nombre del rol actual a partir de los IDs configurados en `WOW_RANK_ROLE_IDS` y, si corresponde, de `WOW_DEFAULT_RANK_ROLE_ID`. Si no encuentra uno de esos roles en el miembro, usa `raider`. El bot debe poder ver y gestionar el canal. Los cambios y los fallos de permisos aparecen en el informe.
 
-Configura `OFFICER_REPORT_CHANNEL_ID` con un canal de texto privado para oficiales. Cada sincronización diaria publicará allí el resumen de cambios de roles, canales renombrados, omisiones y resultado de los avisos de calderos. El bot necesita permiso para ver y enviar mensajes en ese canal.
+Configura `OFFICER_REPORT_CHANNEL_ID` con un canal de texto privado para oficiales. Cada sincronización diaria publicará allí el resumen de cambios de roles, canales renombrados y omisiones. El bot necesita permiso para ver y enviar mensajes en ese canal.
 
 ## Reparto y avisos de calderos
 
 El bot guarda las asignaciones semanales en SQLite. Al iniciar por primera vez, precarga las asignaciones indicadas en el reparto actual. Los oficiales pueden cambiar una asignación con `/wow-caldero-asignar dia tipo usuario`; el miembro seleccionado debe tener un main vinculado y un canal Raider asociado. El mensaje público muestra el nombre de ese main y se genera desde esos mismos datos.
+
+Los avisos privados de calderos se envían cada día a las **22:00 Europe/Madrid**. La sincronización automática de roles permanece a las **4:00** por defecto (`WOW_SYNC_HOUR`); esa tarea ya no envía avisos de calderos.
 
 El encabezado muestra la mención del rol de Alquimista configurado como `Alchemy` en `WOW_PROFESSION_ROLE_IDS`, sin enviar una notificación masiva. El bot solo referencia ese rol existente; no crea ni modifica roles.
 

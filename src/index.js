@@ -430,16 +430,30 @@ async function sendDailyCauldronReminders(guild, timeZone) {
   return { weekday: today, sent, skipped };
 }
 
-async function sendOfficerDailyReport(guild, { syncReport, syncError, cauldronReport, cauldronError }) {
+async function sendOfficerDailyReport(guild, { syncReport, syncError }) {
   if (!officerReportChannelId) return;
   const channel = await guild.channels.fetch(officerReportChannelId).catch(() => null);
   if (!channel?.isTextBased()) throw new Error('OFFICER_REPORT_CHANNEL_ID no existe o no es accesible.');
   const lines = [`**Informe automático WoW · ${new Date().toLocaleString('es-ES', { timeZone: process.env.WOW_SYNC_TIMEZONE || 'Europe/Madrid' })}**`];
   if (syncReport) lines.push('', formatSyncReport(syncReport, 'Sincronización diaria'));
   else lines.push('', `**Falló la sincronización:** ${syncError || 'error desconocido'}`);
-  if (cauldronReport) lines.push('', `**Avisos de calderos (${cauldronReport.weekday}):** ${cauldronReport.sent} enviados · ${cauldronReport.skipped} omitidos.`);
-  else if (cauldronError) lines.push('', `**Fallaron los avisos de calderos:** ${cauldronError}`);
   await channel.send({ content: lines.join('\n').slice(0, 1950), allowedMentions: { parse: [] } });
+}
+
+function scheduleDailyCauldronReminders(readyClient, timeZone) {
+  const nextRun = nextDailyRun(22, timeZone);
+  console.log(`Próximos avisos de calderos: ${new Date(nextRun).toLocaleString('es-ES', { timeZone })} (${timeZone}).`);
+  setTimeout(async () => {
+    try {
+      const guild = await readyClient.guilds.fetch(guildId);
+      const report = await sendDailyCauldronReminders(guild, timeZone);
+      console.log(`Avisos de calderos ${report.weekday}: ${report.sent} enviados · ${report.skipped} omitidos.`);
+    } catch (error) {
+      console.error('Falló el envío de avisos de calderos:', error.message);
+    } finally {
+      scheduleDailyCauldronReminders(readyClient, timeZone);
+    }
+  }, Math.max(0, nextRun - Date.now())).unref();
 }
 
 function scheduleDailySync(readyClient, hour, timeZone) {
@@ -448,17 +462,13 @@ function scheduleDailySync(readyClient, hour, timeZone) {
   setTimeout(async () => {
     let syncReport = null;
     let syncError = null;
-    let cauldronReport = null;
-    let cauldronError = null;
     try {
       const guild = await readyClient.guilds.fetch(guildId);
       try {
         syncReport = await runSync(guild);
         console.log(`Sync WoW ${guildId}: ${syncReport.synced} vinculaciones procesadas; ${syncReport.skipped.length} omitidas.`);
       } catch (error) { syncError = error.message; console.error('Falló la sincronización automática WoW:', error.message); }
-      try { cauldronReport = await sendDailyCauldronReminders(guild, timeZone); }
-      catch (error) { cauldronError = error.message; console.error('Falló el envío de avisos de calderos:', error.message); }
-      try { await sendOfficerDailyReport(guild, { syncReport, syncError, cauldronReport, cauldronError }); }
+      try { await sendOfficerDailyReport(guild, { syncReport, syncError }); }
       catch (error) { console.error('No se pudo enviar el informe diario a oficiales:', error.message); }
     } catch (error) {
       console.error('Falló la sincronización automática WoW:', error.message);
@@ -485,6 +495,7 @@ client.once(Events.ClientReady, (readyClient) => {
   const timeZone = process.env.WOW_SYNC_TIMEZONE || 'Europe/Madrid';
   if (!Number.isInteger(hour) || hour < 0 || hour > 23) throw new Error('WOW_SYNC_HOUR debe ser un número entre 0 y 23.');
   scheduleDailySync(readyClient, hour, timeZone);
+  scheduleDailyCauldronReminders(readyClient, timeZone);
   startLootScheduler(readyClient, guildId);
   startGearReminderScheduler(readyClient, guildId, getWowLinks);
 });
