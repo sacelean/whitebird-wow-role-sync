@@ -8,56 +8,49 @@ if (!token || !clientId || !guildId) throw new Error('Configura DISCORD_TOKEN, D
 
 const commands = [
   new SlashCommandBuilder()
-    .setName('wow-loot-actualizar')
-    .setDescription('Publica o actualiza el mensaje completo de loot (oficiales)')
-    .addChannelOption(option => option.setName('canal').setDescription('Destino que se guardará también para los informes semanales').addChannelTypes(ChannelType.GuildText).setRequired(false)),
-  new SlashCommandBuilder()
-    .setName('wow-raiders-actualizar')
+    .setName('informe-raiders')
     .setDescription('Publica o actualiza la tabla semanal de raiders (oficiales)')
     .addChannelOption(option => option.setName('canal').setDescription('Destino compartido con el informe semanal de loot').addChannelTypes(ChannelType.GuildText).setRequired(false)),
   new SlashCommandBuilder()
-    .setName('wow-bis-proponer')
+    .setName('bis-proponer')
     .setDescription('Propone al raider una lista BIS para que la acepte o rechace (oficiales)')
     .addUserOption(option => option.setName('raider').setDescription('Raider vinculado cuyo canal recibirá la propuesta').setRequired(true))
     .addStringOption(option => option.setName('actividad').setDescription('Tipo de equipamiento que debe incluir la lista').setRequired(true).addChoices(
       { name: 'General', value: 'overall' }, { name: 'Raid', value: 'raid' }, { name: 'Mítico+', value: 'mythic_plus' }
     )),
   new SlashCommandBuilder()
-    .setName('wow-vincular-auto')
+    .setName('vinculacion-buscar')
     .setDescription('Busca tu main de WoW comparando tu nombre con el roster de Blizzard'),
   new SlashCommandBuilder()
-    .setName('wow-vincular')
+    .setName('vinculacion-asignar')
     .setDescription('Vincula un usuario de Discord con su personaje main (oficiales)')
     .addUserOption((option) => option.setName('usuario').setDescription('Miembro de Discord').setRequired(true))
     .addStringOption((option) => option.setName('personaje').setDescription('Nombre del personaje').setRequired(true))
     .addStringOption((option) => option.setName('reino').setDescription('Reino del personaje').setRequired(true)),
   new SlashCommandBuilder()
-    .setName('wow-desvincular')
+    .setName('vinculacion-quitar')
     .setDescription('Quita la vinculación de WoW de un usuario (oficiales)')
     .addUserOption((option) => option.setName('usuario').setDescription('Miembro de Discord').setRequired(true)),
   new SlashCommandBuilder()
-    .setName('syncwow')
+    .setName('sincronizacion-ejecutar')
     .setDescription('Sincroniza los roles de rango y profesión (oficiales)'),
   new SlashCommandBuilder()
-    .setName('wow-sincronizar-revisar')
-    .setDescription('Previsualiza los cambios de la sincronización y permite confirmarlos (oficiales)'),
-  new SlashCommandBuilder()
-    .setName('wow-sync-usuario')
+    .setName('sincronizacion-usuario')
     .setDescription('Sincroniza solo a un usuario vinculado (oficiales)')
     .addUserOption((option) => option.setName('usuario').setDescription('Miembro de Discord').setRequired(true)),
   new SlashCommandBuilder()
-    .setName('wow-auditoria')
+    .setName('auditoria-revisar')
     .setDescription('Comprueba vínculos, roles, roster, canales y calderos (oficiales)'),
   new SlashCommandBuilder()
-    .setName('wow-historial')
+    .setName('historial-cambios')
     .setDescription('Muestra los últimos cambios de roles hechos por el bot (oficiales)')
     .addUserOption((option) => option.setName('usuario').setDescription('Filtrar por miembro').setRequired(false))
     .addIntegerOption((option) => option.setName('limite').setDescription('Número de cambios (1–25)').setMinValue(1).setMaxValue(25).setRequired(false)),
   new SlashCommandBuilder()
-    .setName('wow-vinculaciones')
+    .setName('vinculacion-listar')
     .setDescription('Muestra vinculaciones guardadas y propuestas pendientes (oficiales)'),
   new SlashCommandBuilder()
-    .setName('wow-caldero-asignar')
+    .setName('calderos-asignar')
     .setDescription('Cambia quién lleva cada caldero y actualiza el reparto público (oficiales)')
     .addStringOption((option) => option.setName('dia').setDescription('Día de raid').setRequired(true).addChoices(
       { name: 'Lunes', value: 'monday' }, { name: 'Martes', value: 'tuesday' },
@@ -68,11 +61,11 @@ const commands = [
     ))
     .addUserOption((option) => option.setName('usuario').setDescription('Miembro asignado al caldero').setRequired(true)),
   new SlashCommandBuilder()
-    .setName('wow-calderos-panel')
+    .setName('calderos-publicar')
     .setDescription('Publica o mueve el mensaje de reparto de calderos (oficiales)')
     .addChannelOption((option) => option.setName('canal').setDescription('Canal de crafteos donde publicar el reparto').setRequired(true).addChannelTypes(ChannelType.GuildText)),
   new SlashCommandBuilder()
-    .setName('wow-calderos-vista')
+    .setName('calderos-ver')
     .setDescription('Muestra el reparto actual de calderos de forma privada (oficiales)'),
 ].map((command) => command.toJSON());
 

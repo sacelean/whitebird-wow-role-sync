@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { updateLootPanel } from './loot-panel.js';
 import { startLootScheduler } from './loot-scheduler.js';
 import { startGearReminderScheduler } from './gear-reminders.js';
-import { getLootConfig, fetchLootReport, fetchRaiderTableReport, lootErrorMessage } from './wowaudit.js';
+import { getLootConfig, fetchRaiderTableReport, lootErrorMessage } from './wowaudit.js';
 import { auditGet } from './wowaudit.js';
 import { BisListError, buildBisList, buildMethodBisList, fetchBlingClasses, formatBisProposal } from './bis-lists.js';
 import { randomUUID } from 'node:crypto';
@@ -21,7 +21,6 @@ import {
   TextInputStyle
 } from 'discord.js';
 import {
-  lootPanelStore,
   raiderPanelStore,
   acceptBisProposal,
   getLootDestination,
@@ -52,7 +51,6 @@ import {
   getWowConfig,
   findGuildRosterCharacter,
   rankGuildRosterCandidates,
-  previewWowRoleSync,
   synchronizeWowRoles,
 } from './wow-sync.js';
 import {
@@ -73,7 +71,6 @@ const officerRoleIds = new Set((process.env.OFFICER_ROLE_IDS || '').split(',').m
 const officerReportChannelId = (process.env.OFFICER_REPORT_CHANNEL_ID || '').trim();
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const pendingWowLinks = new Map();
-const pendingSyncPreviews = new Map();
 const weekdays = [
   ['monday', 'Lunes'], ['tuesday', 'Martes'], ['wednesday', 'Miércoles'], ['thursday', 'Jueves']
 ];
@@ -95,13 +92,6 @@ function confirmationRow(nonce) {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`wow-link-confirm:${nonce}`).setLabel('Confirmar como mi main').setStyle(ButtonStyle.Success),
     new ButtonBuilder().setCustomId(`wow-link-cancel:${nonce}`).setLabel('Cancelar').setStyle(ButtonStyle.Secondary)
-  );
-}
-
-function syncConfirmationRow(nonce) {
-  return new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`wow-sync-confirm:${nonce}`).setLabel('Confirmar sincronización').setStyle(ButtonStyle.Danger),
-    new ButtonBuilder().setCustomId(`wow-sync-cancel:${nonce}`).setLabel('Cancelar').setStyle(ButtonStyle.Secondary)
   );
 }
 
@@ -367,30 +357,6 @@ async function handleBisComponent(interaction) {
   });
 }
 
-async function handleSyncPreviewComponent(interaction) {
-  const [, action, nonce] = interaction.customId.match(/^wow-sync-(confirm|cancel):(.+)$/) || [];
-  const pending = pendingSyncPreviews.get(nonce);
-  if (!pending || pending.expiresAt <= Date.now()) {
-    pendingSyncPreviews.delete(nonce);
-    return interaction.update({ content: 'La vista previa ha caducado. Ejecuta `/wow-sincronizar-revisar` para generar otra.', components: [] });
-  }
-  if (interaction.guildId !== pending.guildId || interaction.user.id !== pending.userId) {
-    return interaction.reply({ content: 'Solo el oficial que solicitó la vista previa puede confirmar esta sincronización.', flags: MessageFlags.Ephemeral });
-  }
-  if (!isOfficer(interaction)) {
-    pendingSyncPreviews.delete(nonce);
-    return interaction.update({ content: 'Ya no tienes permisos de oficial; no se ha cambiado ningún rol.', components: [] });
-  }
-  pendingSyncPreviews.delete(nonce);
-  if (action === 'cancel') return interaction.update({ content: 'Sincronización cancelada; no se ha cambiado ningún rol.', components: [] });
-  if (!interaction.appPermissions?.has(PermissionFlagsBits.ManageRoles)) {
-    return interaction.update({ content: 'El bot necesita el permiso **Gestionar roles**. No se ha modificado ningún rol.', components: [] });
-  }
-  await interaction.update({ content: 'Confirmado. Estoy volviendo a consultar Blizzard y aplicando la sincronización…', components: [] });
-  const report = await runSync(interaction.guild);
-  return interaction.editReply({ content: formatSyncReport(report) });
-}
-
 function matchOptions(candidates) {
   return new StringSelectMenuBuilder()
     .setCustomId(`wow-link-choose:${candidates.nonce}`)
@@ -411,7 +377,7 @@ async function autoLink(interaction) {
   const ranked = rankGuildRosterCandidates(roster, [member.displayName, interaction.user.globalName, interaction.user.username]);
   const best = ranked[0];
   if (!best || best.score < 0.62) {
-    return interaction.editReply('No encuentro una coincidencia clara con tu nombre. Pide a un oficial que use `/wow-vincular usuario personaje reino`.');
+    return interaction.editReply('No encuentro una coincidencia clara con tu nombre. Pide a un oficial que use `/vinculacion-asignar usuario personaje reino`.');
   }
 
   const nonce = randomUUID();
@@ -445,14 +411,14 @@ async function handleLinkComponent(interaction) {
   const pending = pendingWowLinks.get(nonce);
   if (!pending || pending.expiresAt <= Date.now()) {
     pendingWowLinks.delete(nonce);
-    return interaction.update({ content: 'Esta propuesta ha caducado. Ejecuta `/wow-vincular-auto` para buscar de nuevo.', components: [] });
+    return interaction.update({ content: 'Esta propuesta ha caducado. Ejecuta `/vinculacion-buscar` para buscar de nuevo.', components: [] });
   }
   if (interaction.user.id !== pending.userId || interaction.guildId !== pending.guildId) {
     return interaction.reply({ content: 'Solo la persona que inició la búsqueda puede confirmar esta vinculación.', flags: MessageFlags.Ephemeral });
   }
   if (interaction.isStringSelectMenu()) {
     const candidate = pending.candidates[Number(interaction.values[0])];
-    if (!candidate) return interaction.update({ content: 'No reconozco esa opción. Ejecuta `/wow-vincular-auto` otra vez.', components: [] });
+    if (!candidate) return interaction.update({ content: 'No reconozco esa opción. Ejecuta `/vinculacion-buscar` otra vez.', components: [] });
     pending.character = candidate;
     return interaction.update({
       content: `¿Confirmas **${candidate.name}** · **${candidate.realm}** como tu main?`,
@@ -473,7 +439,7 @@ async function handleLinkComponent(interaction) {
       return interaction.update({ content: 'No se pudo guardar. Puede que ese personaje ya esté vinculado a otra persona; pide a un oficial que lo revise.', components: [] });
     }
   }
-  return interaction.update({ content: 'La propuesta ya no está disponible. Ejecuta `/wow-vincular-auto` para empezar de nuevo.', components: [] });
+  return interaction.update({ content: 'La propuesta ya no está disponible. Ejecuta `/vinculacion-buscar` para empezar de nuevo.', components: [] });
 }
 
 async function runSync(guild, selectedLinks = null) {
@@ -575,17 +541,6 @@ function formatSyncReport(report, title = 'Sincronización terminada') {
   return lines.join('\n').slice(0, 1950);
 }
 
-function formatPreview(items) {
-  if (!items.length) return 'No hay vinculaciones guardadas para revisar.';
-  const lines = [`**Vista previa: ${items.length} vinculaciones**`, '_No se ha cambiado ningún rol ni canal. La confirmación volverá a consultar Blizzard antes de aplicar._'];
-  for (const item of items.slice(0, 18)) {
-    const changes = [...(item.roleChanges || []), ...(item.channelChange ? [`renombrar canal ${item.channelChange}`] : [])];
-    lines.push(`• **${item.character}** — ${item.status}${changes.length ? `; ${changes.join(', ')}` : '; sin cambios previstos'}`);
-  }
-  if (items.length > 18) lines.push(`… y ${items.length - 18} vinculaciones más. Consulta `/wow-auditoria` para revisar el estado.`);
-  return lines.join('\n').slice(0, 1900);
-}
-
 async function buildAuditReport(guild) {
   const config = getWowConfig();
   const links = getWowLinks(guild.id);
@@ -642,7 +597,7 @@ async function buildAuditReport(guild) {
   else {
     const channel = await guild.channels.fetch(panel.channel_id).catch(() => null);
     const message = channel?.messages ? await channel.messages.fetch(panel.message_id).catch(() => null) : null;
-    if (!message) issues.push('El mensaje guardado del reparto de calderos no existe; ejecuta `/wow-calderos-panel` para repararlo.');
+    if (!message) issues.push('El mensaje guardado del reparto de calderos no existe; ejecuta `/calderos-publicar` para repararlo.');
     if (channel?.permissionsFor && !channel.permissionsFor(botMember)?.has(PermissionFlagsBits.ViewChannel | PermissionFlagsBits.SendMessages)) {
       issues.push('El bot no puede ver y enviar mensajes en el canal del reparto de calderos.');
     }
@@ -782,14 +737,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
     const isLinkComponent = (interaction.isStringSelectMenu() && interaction.customId.startsWith('wow-link-choose:')) ||
       (interaction.isButton() && interaction.customId.startsWith('wow-link-'));
     if (isLinkComponent) return await handleLinkComponent(interaction);
-    if (interaction.isButton() && interaction.customId.startsWith('wow-sync-')) return await handleSyncPreviewComponent(interaction);
     if ((interaction.isStringSelectMenu() || interaction.isButton() || interaction.isModalSubmit()) && interaction.customId.startsWith('wow-bis-')) return await handleBisComponent(interaction);
     if (!interaction.isChatInputCommand()) return;
     if (interaction.guildId !== guildId) {
       return interaction.reply({ content: 'Este bot solo está configurado para su servidor de Whitebird.', flags: MessageFlags.Ephemeral });
     }
 
-    if (interaction.commandName === 'wow-bis-proponer') {
+    if (interaction.commandName === 'bis-proponer') {
       if (!isOfficer(interaction)) return interaction.reply(unauthorizedReply());
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       let proposalId = null;
@@ -799,7 +753,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const target = interaction.options.getUser('raider', true);
         const activity = interaction.options.getString('actividad', true);
         const link = getWowLinks(guildId).find((item) => item.user_id === target.id);
-        if (!link?.raider_channel_id) return interaction.editReply(`**${target.username}** no tiene el main y el canal Raider vinculados. Comprueba `/wow-vinculaciones`.`);
+        if (!link?.raider_channel_id) return interaction.editReply(`**${target.username}** no tiene el main y el canal Raider vinculados. Comprueba `/vinculacion-listar`.`);
 
         const channel = await interaction.guild.channels.fetch(link.raider_channel_id).catch(() => null);
         if (!channel?.isTextBased() || typeof channel.send !== 'function') return interaction.editReply(`No puedo acceder al canal Raider de **${link.character_name}**.`);
@@ -848,7 +802,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
     }
 
-    if (interaction.commandName === 'wow-loot-actualizar') {
+    if (interaction.commandName === 'informe-raiders') {
       if (!isOfficer(interaction)) return interaction.reply(unauthorizedReply());
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       try {
@@ -856,28 +810,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (!config) return interaction.editReply('WoWAudit está desactivado. Configura WOWAUDIT_API_KEY en el servidor.');
         const selectedChannel = interaction.options.getChannel('canal');
         const channelId = selectedChannel?.id || getLootDestination(guildId);
-        if (!channelId) return interaction.editReply('Elige el destino con `/wow-loot-actualizar canal:#tu-canal`. Se guardará para las siguientes actualizaciones.');
-        const report = await fetchLootReport(config, getWowLinks(guildId), Date.now());
-        const panel = await updateLootPanel(interaction.guild, { ...config, channelId }, report, lootPanelStore);
-        setLootDestination(guildId, panel.channelId);
-        return interaction.editReply({ content: `Informe actualizado: https://discord.com/channels/${guildId}/${panel.channelId}/${panel.messageId}`, allowedMentions: { parse: [] } });
-
-      } catch (error) {
-        const detail = error?.name === 'LootPanelError' ? error.message : lootErrorMessage(error);
-        console.error('Informe de loot:', detail);
-        return interaction.editReply({ content: `No se pudo preparar o actualizar el informe de loot. ${detail}`, allowedMentions: { parse: [] } });
-      }
-    }
-
-    if (interaction.commandName === 'wow-raiders-actualizar') {
-      if (!isOfficer(interaction)) return interaction.reply(unauthorizedReply());
-      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-      try {
-        const config = getLootConfig();
-        if (!config) return interaction.editReply('WoWAudit está desactivado. Configura WOWAUDIT_API_KEY en el servidor.');
-        const selectedChannel = interaction.options.getChannel('canal');
-        const channelId = selectedChannel?.id || getLootDestination(guildId);
-        if (!channelId) return interaction.editReply('Elige el destino con `/wow-raiders-actualizar canal:#tu-canal`. Se compartirá con los informes semanales de loot.');
+        if (!channelId) return interaction.editReply('Elige el destino con `/informe-raiders canal:#tu-canal`. Se guardará para los informes semanales.');
         const report = await fetchRaiderTableReport(config, getWowLinks(guildId), Date.now());
         const panel = await updateLootPanel(interaction.guild, { ...config, channelId }, report, raiderPanelStore, null, 'resumen de raiders');
         setLootDestination(guildId, panel.channelId);
@@ -889,8 +822,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
     }
 
-    if (interaction.commandName === 'wow-vincular-auto') return await autoLink(interaction);
-    if (interaction.commandName === 'wow-vincular') {
+    if (interaction.commandName === 'vinculacion-buscar') return await autoLink(interaction);
+    if (interaction.commandName === 'vinculacion-asignar') {
       if (!isOfficer(interaction)) return interaction.reply(unauthorizedReply());
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const target = interaction.options.getUser('usuario', true);
@@ -903,7 +836,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return interaction.editReply(`Vinculado **${match.name}** · **${match.realm}** con <@${target.id}>.`);
     }
 
-    if (interaction.commandName === 'wow-desvincular') {
+    if (interaction.commandName === 'vinculacion-quitar') {
       if (!isOfficer(interaction)) return interaction.reply(unauthorizedReply());
       const target = interaction.options.getUser('usuario', true);
       const removed = removeWowLink(guildId, target.id);
@@ -914,7 +847,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       });
     }
 
-    if (interaction.commandName === 'syncwow') {
+    if (interaction.commandName === 'sincronizacion-ejecutar') {
       if (!isOfficer(interaction)) return interaction.reply(unauthorizedReply());
       if (!interaction.appPermissions?.has(PermissionFlagsBits.ManageRoles)) {
         return interaction.reply({ content: 'El bot necesita el permiso **Gestionar roles**. No se ha modificado ningún rol.', flags: MessageFlags.Ephemeral });
@@ -924,21 +857,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return interaction.editReply({ content: formatSyncReport(report), allowedMentions: { parse: [] } });
     }
 
-    if (interaction.commandName === 'wow-sincronizar-revisar') {
-      if (!isOfficer(interaction)) return interaction.reply(unauthorizedReply());
-      if (!interaction.appPermissions?.has(PermissionFlagsBits.ManageRoles)) {
-        return interaction.reply({ content: 'El bot necesita el permiso **Gestionar roles** para aplicar la sincronización.', flags: MessageFlags.Ephemeral });
-      }
-      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-      const items = await previewWowRoleSync(interaction.guild, getWowLinks(guildId));
-      if (!items.length) return interaction.editReply('No hay vinculaciones guardadas que sincronizar.');
-      const nonce = randomUUID();
-      pendingSyncPreviews.set(nonce, { guildId, userId: interaction.user.id, expiresAt: Date.now() + 5 * 60_000 });
-      for (const [key, value] of pendingSyncPreviews) if (value.expiresAt <= Date.now()) pendingSyncPreviews.delete(key);
-      return interaction.editReply({ content: formatPreview(items), components: [syncConfirmationRow(nonce)], allowedMentions: { parse: [] } });
-    }
-
-    if (interaction.commandName === 'wow-sync-usuario') {
+    if (interaction.commandName === 'sincronizacion-usuario') {
       if (!isOfficer(interaction)) return interaction.reply(unauthorizedReply());
       if (!interaction.appPermissions?.has(PermissionFlagsBits.ManageRoles)) {
         return interaction.reply({ content: 'El bot necesita el permiso **Gestionar roles**. No se ha modificado ningún rol.', flags: MessageFlags.Ephemeral });
@@ -951,7 +870,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return interaction.editReply({ content: formatSyncReport(report, `Sincronización de ${link.character_name}`), allowedMentions: { parse: [] } });
     }
 
-    if (interaction.commandName === 'wow-auditoria') {
+    if (interaction.commandName === 'auditoria-revisar') {
       if (!isOfficer(interaction)) return interaction.reply(unauthorizedReply());
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const pages = splitReport(await buildAuditReport(interaction.guild));
@@ -960,7 +879,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return;
     }
 
-    if (interaction.commandName === 'wow-historial') {
+    if (interaction.commandName === 'historial-cambios') {
       if (!isOfficer(interaction)) return interaction.reply(unauthorizedReply());
       const target = interaction.options.getUser('usuario');
       const limit = interaction.options.getInteger('limite') || 10;
@@ -973,7 +892,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return interaction.reply({ content: lines.join('\n').slice(0, 1950), flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
     }
 
-    if (interaction.commandName === 'wow-vinculaciones') {
+    if (interaction.commandName === 'vinculacion-listar') {
       if (!isOfficer(interaction)) return interaction.reply(unauthorizedReply());
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const pages = splitReport(await buildLinkReport(interaction.guild));
@@ -984,7 +903,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return;
     }
 
-    if (interaction.commandName === 'wow-caldero-asignar') {
+    if (interaction.commandName === 'calderos-asignar') {
       if (!isOfficer(interaction)) return interaction.reply(unauthorizedReply());
       const weekday = interaction.options.getString('dia', true);
       const type = interaction.options.getString('tipo', true);
@@ -1005,11 +924,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const dayName = weekdays.find(([key]) => key === weekday)?.[1] || weekday;
       const typeName = type === 'potis' ? 'potis' : 'frascos';
       return interaction.editReply({
-        content: `Asignación guardada: **${dayName}**, caldero de **${typeName}** → **${link.character_name}**.${panelUpdated ? ' El mensaje del canal ya está actualizado.' : ' No hay panel configurado; un oficial debe ejecutar `/wow-calderos-panel` en el canal de crafteos.'}`,
+        content: `Asignación guardada: **${dayName}**, caldero de **${typeName}** → **${link.character_name}**.${panelUpdated ? ' El mensaje del canal ya está actualizado.' : ' No hay panel configurado; un oficial debe ejecutar `/calderos-publicar` en el canal de crafteos.'}`,
       });
     }
 
-    if (interaction.commandName === 'wow-calderos-panel') {
+    if (interaction.commandName === 'calderos-publicar') {
       if (!isOfficer(interaction)) return interaction.reply(unauthorizedReply());
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const channel = interaction.options.getChannel('canal', true);
@@ -1020,10 +939,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
       const message = await channel.send({ content: renderCauldronSchedule(guildId), allowedMentions: { parse: [] } });
       setCauldronPanel(guildId, channel.id, message.id);
-      return interaction.editReply(`He publicado el mensaje de reparto en ${channel}. Los cambios hechos con `/wow-caldero-asignar` actualizarán ese mensaje. Como el mensaje anterior lo escribió una persona, Discord no permite que el bot lo edite; podéis borrarlo manualmente.`);
+      return interaction.editReply(`He publicado el mensaje de reparto en ${channel}. Los cambios hechos con `/calderos-asignar` actualizarán ese mensaje. Como el mensaje anterior lo escribió una persona, Discord no permite que el bot lo edite; podéis borrarlo manualmente.`);
     }
 
-    if (interaction.commandName === 'wow-calderos-vista') {
+    if (interaction.commandName === 'calderos-ver') {
       if (!isOfficer(interaction)) return interaction.reply(unauthorizedReply());
       return interaction.reply({ content: renderCauldronSchedule(guildId), flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
     }

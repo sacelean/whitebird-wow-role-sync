@@ -23,7 +23,6 @@ process.env.WOW_PROFESSION_ROLE_IDS = JSON.stringify({
 const {
   findGuildRosterCharacter,
   getUnlinkedMappedRosterMembers,
-  previewWowRoleSync,
   rankGuildRosterCandidates,
   synchronizeWowRoles
 } = await import('../src/wow-sync.js');
@@ -291,19 +290,6 @@ test('encuentra un canal Raider antiguo por nombre y guarda su ID en el vínculo
   await synchronizeWowRoles(guild, [linked], { saveLink: (...args) => saved.push(args) });
 
   assert.deepEqual(saved, [['discord-guild-1', linked.user_id, linked.character_name, linked.realm_slug, channel.id]]);
-});
-
-test('la vista previa predice cambios de rango y profesión sin modificar roles', async (t) => {
-  mockBlizzard(t, { roster: rosterWith('Asherrna', 2) });
-  const { guild, member, changes } = makeGuild([roleIds.rank0, roleIds.blacksmithing]);
-
-  const items = await previewWowRoleSync(guild, [linked]);
-
-  assert.equal(items.length, 1);
-  assert.match(items[0].status, /rango 2/);
-  assert.deepEqual(items[0].roleChanges, ['añadir Raider', 'quitar Guild Master', 'añadir profesión Alquimista']);
-  assert.deepEqual(changes, []);
-  assert.equal(member.roles.cache.has(roleIds.rank0), true);
 });
 
 test('la sincronización emite cada cambio real para guardarlo en el historial', async (t) => {

@@ -4,19 +4,34 @@ Bot de Discord independiente para vincular mains del roster de la guild en Blizz
 
 ## Flujo
 
-1. Cada miembro ejecuta `/wow-vincular-auto`. El bot compara su apodo y nombres de Discord con los personajes del roster de la guild publicado por Blizzard.
-2. Si encuentra una coincidencia clara, pide confirmación. Si hay varias, la persona elige una y confirma. No guarda nada antes de la confirmación.
-3. Si el nombre no coincide, un oficial puede usar `/wow-vincular usuario:@miembro personaje:Nombre reino:Reino`.
-4. Un oficial ejecuta `/syncwow` para sincronizar roles. El bot también sincroniza automáticamente todos los días a las 4:00 (hora peninsular española).
-5. Los oficiales pueden ejecutar `/wow-desvincular usuario:@miembro` para retirar el vínculo de una persona.
-6. Los oficiales consultan `/wow-vinculaciones` para ver los vínculos guardados, el rol de rango que tiene cada miembro y el canal privado de Raider cuando se conoce. Los vínculos se ordenan del rango más alto al más bajo (el rol por defecto aparece al final), seguidos por personajes del roster sin vincular y propuestas pendientes.
-7. `/wow-sincronizar-revisar` muestra los cambios previstos y exige confirmación; `/wow-sync-usuario` sincroniza solo una persona. `/wow-auditoria` revisa roles, vínculos, roster, canales y calderos. `/wow-historial` consulta los cambios de roles guardados.
-8. `/wow-calderos-vista` enseña el reparto actual en privado. Los avisos diarios de calderos y de equipo se publican en el canal Raider asociado.
-9. Un oficial puede ejecutar `/wow-bis-proponer raider actividad` para enviar una propuesta BIS al canal Raider vinculado. El raider elige especialización, revisa objetos y procedencia y acepta o rechaza. Solo la aceptación guarda una lista activa en Whitebird.
+1. Cada miembro usa `/vinculacion-buscar` para encontrar su main en el roster de Blizzard y confirmar el vínculo.
+2. Si no hay una coincidencia clara, un oficial asigna el main con `/vinculacion-asignar`.
+3. La sincronización de roles se ejecuta automáticamente a las 4:00; un oficial también puede iniciarla con `/sincronizacion-ejecutar` o limitarla a una persona con `/sincronizacion-usuario`.
+4. Los oficiales gestionan vínculos, auditan el estado y consultan el historial con los comandos de la tabla.
+5. Los avisos de calderos y equipo se publican en los canales Raider asociados. `/bis-proponer` envía una propuesta BIS que el raider puede editar, aceptar o rechazar.
+
+## Comandos
+
+| Comando | Uso |
+|---|---|
+| `/vinculacion-buscar` | Busca y propone al usuario su main del roster. |
+| `/vinculacion-asignar` | Vincula un usuario con personaje y reino (oficiales). |
+| `/vinculacion-quitar` | Elimina el vínculo de un usuario (oficiales). |
+| `/vinculacion-listar` | Muestra vínculos, canales Raider, personajes sin vincular y propuestas pendientes (oficiales). |
+| `/sincronizacion-ejecutar` | Sincroniza roles y canales de todas las vinculaciones (oficiales). |
+| `/sincronizacion-usuario` | Sincroniza solo al usuario elegido (oficiales). |
+| `/auditoria-revisar` | Comprueba vínculos, roles, roster, canales y calderos (oficiales). |
+| `/historial-cambios` | Consulta cambios de roles recientes, opcionalmente filtrados por usuario (oficiales). |
+| `/informe-raiders` | Actualiza la tabla de raiders y elige el canal común de los informes semanales (oficiales). |
+| `/bis-proponer` | Envía una propuesta BIS a un raider vinculado (oficiales). |
+| `/calderos-asignar` | Asigna una persona al caldero de un día y tipo (oficiales). |
+| `/calderos-publicar` | Publica o cambia el canal del panel de calderos (oficiales). |
+| `/calderos-ver` | Muestra en privado el reparto actual de calderos (oficiales). |
+
 
 Las vinculaciones se guardan en `data/whitebird-wow-roles.sqlite`, incluidos el ID de usuario de Discord, main, reino y, si se creó con el bot de recruitment, el ID del canal personal de Raider. Se guarda el ID del canal para que el vínculo siga siendo correcto aunque se cambie su nombre. Blizzard valida que el personaje forma parte del roster y proporciona el rango; la API de perfil de Blizzard proporciona las profesiones. Los acentos cuentan como parte del nombre: `Agô` y `Agó` se consideran personajes distintos, también en la búsqueda automática. Al vincular manualmente, el nombre debe coincidir respetando sus acentos y el bot guarda la grafía exacta del roster de Blizzard. Si Blizzard no tiene profesiones disponibles, el bot conserva los roles de profesión que ya tuviera esa persona.
 
-El bot de recruitment puede compartir este mismo archivo SQLite y guardar automáticamente el personaje main y reino del apply al aceptarlo. En ese caso, monta la misma carpeta de datos del servidor en ambos contenedores; no copies la base de datos a otra ubicación. Después de la aceptación, ejecuta `/syncwow` o espera al siguiente ciclo automático para asignar los roles.
+El bot de recruitment puede compartir este mismo archivo SQLite y guardar automáticamente el personaje main y reino del apply al aceptarlo. En ese caso, monta la misma carpeta de datos del servidor en ambos contenedores; no copies la base de datos a otra ubicación. Después de la aceptación, ejecuta `/sincronizacion-ejecutar` o espera al siguiente ciclo automático para asignar los roles.
 
 ## Configuración
 
@@ -44,25 +59,25 @@ WOW_SYNC_HOUR=4
 WOW_SYNC_TIMEZONE=Europe/Madrid
 ```
 
-Los rangos son las posiciones numéricas del roster de Blizzard (0 es Guild Master). Si el rango actual no tiene entrada en `WOW_RANK_ROLE_IDS`, el bot quita los roles de rango configurados que tenga la persona y le asigna el rol por defecto `WOW_DEFAULT_RANK_ROLE_ID` (Viajante). Si un personaje vinculado deja de aparecer en el roster, `/syncwow` le quita los roles de rango y profesión configurados y le asigna Viajante; conserva el vínculo guardado. Las profesiones se configuran con sus nombres ingleses y requieren `WOW_LOCALE=en_US`. Sustituye los ejemplos por IDs de roles que ya existan en el servidor. El bot no crea, cambia de nombre ni elimina roles. Para los rangos, mantiene un único rol correspondiente al rango actual; los roles de profesión solo se añaden y no se retiran mientras el personaje siga en el roster, porque pueden corresponder a profesiones de alters. La vinculación automática solo busca entre miembros actuales del roster de la guild configurada.
+Los rangos son las posiciones numéricas del roster de Blizzard (0 es Guild Master). Si el rango actual no tiene entrada en `WOW_RANK_ROLE_IDS`, el bot quita los roles de rango configurados que tenga la persona y le asigna el rol por defecto `WOW_DEFAULT_RANK_ROLE_ID` (Viajante). Si un personaje vinculado deja de aparecer en el roster, `/sincronizacion-ejecutar` le quita los roles de rango y profesión configurados y le asigna Viajante; conserva el vínculo guardado. Las profesiones se configuran con sus nombres ingleses y requieren `WOW_LOCALE=en_US`. Sustituye los ejemplos por IDs de roles que ya existan en el servidor. El bot no crea, cambia de nombre ni elimina roles. Para los rangos, mantiene un único rol correspondiente al rango actual; los roles de profesión solo se añaden y no se retiran mientras el personaje siga en el roster, porque pueden corresponder a profesiones de alters. La vinculación automática solo busca entre miembros actuales del roster de la guild configurada.
 
-La sincronización automática diaria se configura con `WOW_SYNC_HOUR` (hora de 0 a 23) y `WOW_SYNC_TIMEZONE` (zona IANA, por ejemplo `Europe/Madrid`). `/syncwow` también mantiene los canales asociados con el formato `rol-nombre-reino`: obtiene el nombre del rol actual a partir de los IDs configurados en `WOW_RANK_ROLE_IDS` y, si corresponde, de `WOW_DEFAULT_RANK_ROLE_ID`. Si no encuentra uno de esos roles en el miembro, usa `raider`. El bot debe poder ver y gestionar el canal. Los cambios y los fallos de permisos aparecen en el informe.
+La sincronización automática diaria se configura con `WOW_SYNC_HOUR` (hora de 0 a 23) y `WOW_SYNC_TIMEZONE` (zona IANA, por ejemplo `Europe/Madrid`). `/sincronizacion-ejecutar` también mantiene los canales asociados con el formato `rol-nombre-reino`: obtiene el nombre del rol actual a partir de los IDs configurados en `WOW_RANK_ROLE_IDS` y, si corresponde, de `WOW_DEFAULT_RANK_ROLE_ID`. Si no encuentra uno de esos roles en el miembro, usa `raider`. El bot debe poder ver y gestionar el canal. Los cambios y los fallos de permisos aparecen en el informe.
 
 Configura `OFFICER_REPORT_CHANNEL_ID` con un canal de texto privado para oficiales. Cada sincronización diaria publicará allí el resumen de cambios de roles, canales renombrados y omisiones. El bot necesita permiso para ver y enviar mensajes en ese canal.
 
 ## Reparto y avisos de calderos
 
-El bot guarda las asignaciones semanales en SQLite. Al iniciar por primera vez, precarga las asignaciones indicadas en el reparto actual. Los oficiales pueden cambiar una asignación con `/wow-caldero-asignar dia tipo usuario`; el miembro seleccionado debe tener un main vinculado y un canal Raider asociado. El mensaje público muestra el nombre de ese main y se genera desde esos mismos datos.
+El bot guarda las asignaciones semanales en SQLite. Al iniciar por primera vez, precarga las asignaciones indicadas en el reparto actual. Los oficiales pueden cambiar una asignación con `/calderos-asignar dia tipo usuario`; el miembro seleccionado debe tener un main vinculado y un canal Raider asociado. El mensaje público muestra el nombre de ese main y se genera desde esos mismos datos.
 
 Los avisos privados de calderos se envían cada día a las **22:00 Europe/Madrid**. La sincronización automática de roles permanece a las **4:00** por defecto (`WOW_SYNC_HOUR`); esa tarea ya no envía avisos de calderos.
 
 El encabezado muestra la mención del rol de Alquimista configurado como `Alchemy` en `WOW_PROFESSION_ROLE_IDS`, sin enviar una notificación masiva. El bot solo referencia ese rol existente; no crea ni modifica roles.
 
-Para publicar el mensaje inicial, ejecuta `/wow-calderos-panel canal:#canal-de-crafteos`. Después, cada cambio de asignación actualiza ese mensaje del bot. Discord no permite que el bot edite un mensaje escrito por una persona, así que la primera publicación crea un mensaje nuevo; el mensaje manual anterior se puede borrar.
+Para publicar el mensaje inicial, ejecuta `/calderos-publicar canal:#canal-de-crafteos`. Después, cada cambio de asignación actualiza ese mensaje del bot. Discord no permite que el bot edite un mensaje escrito por una persona, así que la primera publicación crea un mensaje nuevo; el mensaje manual anterior se puede borrar.
 
 Cada día a la hora configurada, además de sincronizar roles, el bot envía recordatorios a los canales Raider de las personas asignadas ese día. Menciona únicamente a la persona correspondiente. Requiere que el bot pueda ver y enviar mensajes en el canal de crafteos y en los canales privados Raider.
 
-Las propuestas pendientes de `/wow-vincular-auto` se guardan temporalmente en memoria, caducan a los cinco minutos y se muestran en `/wow-vinculaciones`. Si se reinicia el bot, esas propuestas desaparecen; los vínculos confirmados sí permanecen guardados en SQLite.
+Las propuestas pendientes de `/vinculacion-buscar` se guardan temporalmente en memoria, caducan a los cinco minutos y se muestran en `/vinculacion-listar`. Si se reinicia el bot, esas propuestas desaparecen; los vínculos confirmados sí permanecen guardados en SQLite.
 
 ## Pruebas automáticas
 
@@ -133,11 +148,11 @@ WOWAUDIT_LOOT_CATEGORIES=BIS,Mejora de stats,set 4p,Catalizar
 WOWAUDIT_LOOT_RANKS=Oficiales,Fijo,Rotativo,Trial
 ```
 
-La clave selecciona el equipo de WoWAudit. Guarda `.env` solo en el servidor (`chmod 600 .env`); nunca en Git ni en la imagen. El bot necesita Ver canal y Enviar mensajes en el destino. La integración requiere la clave. Elige el destino con `/wow-loot-actualizar canal:#tu-canal`; tras publicar correctamente se guarda en SQLite para las siguientes actualizaciones, también las semanales y tras reiniciar. El parámetro `canal` es opcional cuando ya hay un destino guardado. Sin destino, el proceso semanal espera a que se seleccione uno. No hay nombres predeterminados. El bot necesita también Leer historial de mensajes e Insertar enlaces. Sin configuración WoWAudit queda desactivada; errores de configuración no detienen Blizzard.
+La clave selecciona el equipo de WoWAudit. Guarda `.env` solo en el servidor (`chmod 600 .env`); nunca en Git ni en la imagen. La integración requiere la clave. Para actualizar la tabla y elegir el canal común de los informes, ejecuta `/informe-raiders canal:#tu-canal`; si omites `canal`, se reutiliza el destino guardado en SQLite. Sin destino, la tarea semanal espera a que se seleccione uno. El bot necesita Ver canal, Enviar mensajes, Leer historial e Insertar enlaces en el destino. Sin configuración WoWAudit queda desactivada; los errores no detienen Blizzard.
 
 ### Propuestas de listas BIS para raiders
 
-Un oficial ejecuta `/wow-bis-proponer raider:@miembro actividad:Raid` (también están disponibles General y Mítico+). El miembro debe tener un personaje main vinculado y un canal Raider asociado; el bot obtiene su clase del roster de WoWAudit. En el canal Raider, el destinatario elige especialización y después la fuente, actualmente Method o Blingtron. El valor de `actividad` selecciona la lista General/Overall, Raid o Mítico+/Mythic+ correspondiente. El bot consulta esa guía, comprueba que la tabla y sus objetos se puedan interpretar y publica una propuesta con los objetos enlazados a Wowhead y su procedencia. De Blingtron muestra como máximo los cuatro abalorios mejor clasificados por puntuación. Si Method proporciona una clasificación de abalorios para el contexto elegido, muestra sus cuatro primeros por nivel; si no, conserva las ranuras Abalorio 1 y 2 de la tabla de equipo. Si la página cambia, la respuesta es incompleta o falta un ID de objeto, cancela sin guardar una lista parcial. El raider puede editar, aceptar o rechazar la propuesta; solo ese usuario puede usar los controles. Para editar, selecciona el objeto/ranura y escribe el nombre, ID de Wowhead y procedencia del reemplazo; el embed y la lista guardada se actualizan y la sustitución queda marcada como manual.
+Un oficial ejecuta `/bis-proponer raider:@miembro actividad:Raid` (también están disponibles General y Mítico+). El miembro debe tener un personaje main vinculado y un canal Raider asociado; el bot obtiene su clase del roster de WoWAudit. En el canal Raider, el destinatario elige especialización y después la fuente, actualmente Method o Blingtron. El valor de `actividad` selecciona la lista General/Overall, Raid o Mítico+/Mythic+ correspondiente. El bot consulta esa guía, comprueba que la tabla y sus objetos se puedan interpretar y publica una propuesta con los objetos enlazados a Wowhead y su procedencia. De Blingtron muestra como máximo los cuatro abalorios mejor clasificados por puntuación. Si Method proporciona una clasificación de abalorios para el contexto elegido, muestra sus cuatro primeros por nivel; si no, conserva las ranuras Abalorio 1 y 2 de la tabla de equipo. Si la página cambia, la respuesta es incompleta o falta un ID de objeto, cancela sin guardar una lista parcial. El raider puede editar, aceptar o rechazar la propuesta; solo ese usuario puede usar los controles. Para editar, selecciona el objeto/ranura y escribe el nombre, ID de Wowhead y procedencia del reemplazo; el embed y la lista guardada se actualizan y la sustitución queda marcada como manual.
 
 El feed de Blingtron no publica una recomendación de ranura Dedo para Priest Holy. Cuando se elige esa fuente, el bot muestra la ranura vacía, sin inventar un objeto, y permite rellenarla desde **Editar objeto**.
 
@@ -145,7 +160,7 @@ Al aceptar, Whitebird guarda en SQLite la especialización, actividad, objetos, 
 
 La fuente seleccionada y la fecha de consulta se conservan con la lista; Method también guarda el parche indicado por la guía. La aceptación guarda la lista en SQLite de Whitebird, pero no la sube a WoWAudit: su API pública documentada no ofrece una operación para crear wishlists arbitrarias. La selección requiere `WOWAUDIT_API_KEY` para consultar la clase del personaje y que WoWAudit devuelva una ficha única del main vinculado. El bot necesita Ver canal, Enviar mensajes e Insertar enlaces en cada canal Raider. Las guías no son simulaciones personalizadas; Method recomienda simular el personaje para afinar la elección. Revisa los [términos de uso de cada sitio](https://www.method.gg/terms) antes de usar su contenido en Discord; los términos de Method restringen copiar y republicar material salvo los usos que Method permita.
 
-El informe de loot y el **resumen de raiders** son dos mensajes separados, cada uno con su propio ID y estado. El resumen muestra las bóvedas de la semana, el iLvl actual, el total de loot Mythic y los filtros aplicados. La tabla coloca el total de loot junto al nombre para que se lea de un vistazo. Ambos se publican en el destino guardado y se actualizan los miércoles a las 20:00. Para actualizar solo la tabla al momento, usa `/wow-raiders-actualizar canal:#tu-canal`; comparte el destino guardado con el informe de loot.
+El informe de loot y el **resumen de raiders** se publican como mensajes separados, cada uno con su propio ID y estado. El resumen muestra las bóvedas de la semana, el iLvl actual, el total de loot Mythic junto al nombre y los filtros aplicados. Ambos se publican en el canal guardado y se actualizan los miércoles a las 20:00. `/informe-raiders canal:#tu-canal` actualiza la tabla y guarda el destino común para los informes semanales.
 
 ### Avisos de encantamientos y gemas
 
@@ -182,11 +197,10 @@ Si el mensaje guardado fue borrado (Discord Unknown Message), crea un reemplazo 
 
 Validación automática con ejemplos oficiales y respuestas simuladas. Para validar datos reales, configura la clave del equipo y comprueba una adjudicación conocida, un personaje con cero y el roster antes del primer miércoles. No se ha calculado ni publicado un ranking real de Whitebird durante el desarrollo.
 
-### Publicar y actualizar el informe
+### Publicar y actualizar los informes
 
-Para publicar por primera vez o actualizarlo al momento, ejecuta **`/wow-loot-actualizar canal:#tu-canal`** (permiso Gestionar servidor o un rol de `OFFICER_ROLE_IDS`). Puedes omitir `canal` para reutilizar el destino guardado, o seleccionar otro para cambiarlo. Genera el informe hasta ahora, crea o edita el mismo mensaje público en el canal configurado y devuelve su enlace en una respuesta privada. Comparte la misma persistencia y protección ante duplicados con la actualización semanal. Una actualización manual no consume la actualización del miércoles. El nuevo destino solo se guarda tras publicar correctamente; si falla, conserva la elección anterior. Al cambiar de canal, crea o reutiliza el panel de ese canal y conserva el anterior sin seguir actualizándolo.
+Para publicar o actualizar al momento el resumen de raiders, ejecuta **`/informe-raiders canal:#tu-canal`** (permiso Gestionar servidor o un rol de `OFFICER_ROLE_IDS`). El comando actualiza la tabla y guarda el destino común de los informes semanales; puedes omitir `canal` para reutilizar el destino guardado. El informe completo de loot se actualiza en un mensaje separado cada miércoles.
 
-Para publicar o actualizar solo la tabla, ejecuta **`/wow-raiders-actualizar canal:#tu-canal`**. También puedes omitir el canal para reutilizar el destino guardado. La tabla se edita como un mensaje separado del loot y tiene su propia persistencia; las actualizaciones semanales mantienen ambos mensajes.
 
 Después de desplegar esta versión, registra el nuevo comando:
 
