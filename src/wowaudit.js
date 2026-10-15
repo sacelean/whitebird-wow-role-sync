@@ -238,9 +238,13 @@ export async function fetchRaiderTableReport(config, links, end = Date.now(), fe
     row.raidVault.padEnd(widths.raid), number(row.gear).padStart(5), String(row.loot).padStart(widths.loot)
   ].join(' ')).join('\n');
   const divider = '─'.repeat(header.length);
+  const rosterSummary = `Roster en seguimiento: ${config.ranks.join(', ')} · ${ranking.size} personajes · **${ranking.total} objetos**.`;
+  const filtersSummary = `Mythic · categorías: ${config.categories.join(', ')}.`;
   const content = [
     `**Raiders · ${new Date(end).toISOString().slice(0, 10)} · p${period.current_period}**`,
-    'Keys/Raid vault · iLvl · total de loot Mythic en las categorías configuradas',
+    rosterSummary,
+    filtersSummary,
+    'Tabla: Keys/Raid vault · iLvl · Loot total.',
     `\`\`\`text\n${header}\n${divider}\n${body}\n\`\`\``,
     `Período de loot: desde ${startDate} · alts por separado · — = sin datos.`
   ].join('\n');
@@ -250,7 +254,9 @@ export async function fetchRaiderTableReport(config, links, end = Date.now(), fe
     const compactBody = rows.map((row, index) => `${String(index + 1).padStart(2)} ${row.safeName.padEnd(nameWidth)} ${row.keys} ${row.raidVault} ${number(row.gear)} ${row.loot}`).join('\n');
     messageContent = [
       `**Raiders · ${new Date(end).toISOString().slice(0, 10)} · p${period.current_period}**`,
-      'Keys/Raid vault · iLvl · total loot Mythic',
+      rosterSummary,
+      filtersSummary,
+      'Tabla: Keys/Raid vault · iLvl · Loot total.',
       `\`\`\`text\n${compactHeader}\n${compactBody}\n\`\`\``,
       `Período desde ${startDate} · alts separados · — = sin datos.`
     ].join('\n');

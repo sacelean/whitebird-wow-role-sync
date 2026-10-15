@@ -164,6 +164,8 @@ test('raider table stays readable for 23 and fits Discord content limits up to 3
   assert.equal(report.content.split('\n').filter(line=>/^\s*\d+ Raider\d+/.test(line)).length,size);
   assert.match(report.content,/iLvl\s+Loot/);
   assert.doesNotMatch(report.content,/Asist|\/raid/);
+  assert.ok(report.content.includes(`Roster en seguimiento: Fijo · ${size} personajes · **0 objetos**.`));
+  assert.match(report.content,/Mythic · categorías: BIS, Mejora de stats, set 4p, Catalizar\./);
   if(size===23) assert.match(report.content,/─{20,}/,'23 rows should use the aligned table layout');
   assert.deepEqual(report.allowedMentions,{parse:[]});
  }
