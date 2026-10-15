@@ -155,16 +155,16 @@ test('raider table stays readable for 23 and fits Discord content limits up to 3
    const data=path==='/v1/period'?{...period,current_period:1090}:path==='/v1/characters'?reportRoster:
     path==='/v1/historical_data'?{characters:reportRoster.map(c=>({id:c.id,data:{dungeons_done:[{level:18}],vault_options:{raids:{option_1:17,option_2:null,option_3:null}}}}))}:
     path==='/v1/loot_history/18'?{history_items:[]}:
-    {id:Number(path.split('/').at(-1)),details:{currentItemLevel:329.94,currentRaidProgression:{mythic:{a:{kills:1},b:{kills:0}},heroic:{a:{kills:1},b:{kills:1}},normal:{a:{kills:0},b:{kills:0}},raid_finder:{a:{kills:0},b:{kills:0}}}}};
+    {id:Number(path.split('/').at(-1)),details:{currentItemLevel:329.94}};
    return {ok:true,json:async()=>data};
   });
   assert.equal(typeof report.content,'string');
   assert.equal(Object.hasOwn(report,'embeds'),false);
   assert.ok(report.content.length<=2000,`message content was ${report.content.length} characters for ${size} rows`);
   assert.equal(report.content.split('\n').filter(line=>/^\s*\d+ Raider\d+/.test(line)).length,size);
-  assert.match(report.content,/iLvl\s+Loot\s+(?:Progreso|Prog\.)/);
-  assert.match(report.content,/M1 H2 N0 L0/);
-  assert.match(report.content,/M\/H\/N\/L = bosses derrotados \(2 en temporada\)/);
+  assert.match(report.content,/Nombre\s+Loot\s+Keys\s+Raid\s+iLvl/);
+  assert.match(report.content,/Loot total · Keys\/Raid vault · iLvl actual\./);
+  assert.doesNotMatch(report.content,/Progreso|M1 H2 N0 L0/);
   assert.doesNotMatch(report.content,/Asist|\/raid/);
   assert.ok(report.content.includes(`Roster en seguimiento: Fijo · ${size} personajes · **0 objetos**.`));
   assert.match(report.content,/Mythic · categorías: BIS, Mejora de stats, set 4p, Catalizar\./);

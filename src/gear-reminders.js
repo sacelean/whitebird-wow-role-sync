@@ -80,20 +80,25 @@ export function buildGearReminderMessages(team, overview, links) {
       unlinked.push({ name: character.name, realm: character.realm, ambiguous: matches.length > 1 });
       continue;
     }
-    const userId = matches[0].user_id;
-    const recipient = byUser.get(userId) || { userId, characters: [] };
+    const { user_id: userId, raider_channel_id: channelId } = matches[0];
+    if (!channelId) {
+      unlinked.push({ name: character.name, realm: character.realm, ambiguous: false, missingChannel: true });
+      continue;
+    }
+    const recipientKey = `${channelId}:${userId}`;
+    const recipient = byUser.get(recipientKey) || { userId, channelId, characters: [] };
     recipient.characters.push(character);
-    byUser.set(userId, recipient);
+    byUser.set(recipientKey, recipient);
   }
 
-  const messages = [...byUser.values()].map(({ userId, characters: affected }) => {
-    const lines = ['Hola. Según la auditoría de equipo de WoWAudit, revisa estas piezas por si se te pasó mejorarlas:'];
+  const messages = [...byUser.values()].map(({ userId, channelId, characters: affected }) => {
+    const lines = [`<@${userId}> Según la auditoría de equipo de WoWAudit, revisa estas piezas por si se te pasó mejorarlas:`];
     for (const character of affected.sort((a, b) => identity(a.name, a.realm).localeCompare(identity(b.name, b.realm), 'en'))) {
       lines.push('', `**${character.name} · ${character.realm}**`);
       if (character.enchants.size) lines.push(`• Encantamiento ausente: ${[...character.enchants].map((slot) => slotNames[slot]).join(', ')}.`);
       if (character.sockets.size) lines.push(`• Hueco de gema vacío: ${[...character.sockets].map((slot) => slotNames[slot]).join(', ')}.`);
     }
-    return { userId, content: lines.join('\n') };
+    return { userId, channelId, content: lines.join('\n') };
   });
   return { messages, unlinked };
 }
@@ -107,21 +112,23 @@ export async function fetchGearReminderMessages(config, links, fetcher = fetch) 
   return buildGearReminderMessages(team, overview, links);
 }
 
-export async function sendGearReminders(client, config, links) {
-  const { messages, unlinked } = await fetchGearReminderMessages(config, links);
+export async function sendGearReminders(guild, config, links, fetcher = fetch) {
+  const { messages, unlinked } = await fetchGearReminderMessages(config, links, fetcher);
   for (const character of unlinked) {
-    console.warn(`Aviso WoWAudit omitido para ${character.name} · ${character.realm}: ${character.ambiguous ? 'vinculación ambigua' : 'sin vínculo de Discord'}.`);
+    const reason = character.ambiguous ? 'vinculación ambigua' : character.missingChannel ? 'sin canal Raider asociado' : 'sin vínculo de Discord';
+    console.warn(`Aviso WoWAudit omitido para ${character.name} · ${character.realm}: ${reason}.`);
   }
   let sent = 0;
   let failed = 0;
-  for (const { userId, content } of messages) {
+  for (const { userId, channelId, content } of messages) {
     try {
-      const user = await client.users.fetch(userId);
-      await user.send({ content, allowedMentions: { parse: [] } });
+      const channel = await guild.channels.fetch(channelId);
+      if (!channel?.isTextBased() || typeof channel.send !== 'function') throw new Error('el canal Raider no existe o no admite mensajes');
+      await channel.send({ content, allowedMentions: { users: [userId] } });
       sent += 1;
     } catch (error) {
       failed += 1;
-      console.warn(`No se pudo enviar el aviso WoWAudit por mensaje privado a ${userId}: ${error.message}`);
+      console.warn(`No se pudo enviar el aviso WoWAudit al canal Raider ${channelId} para ${userId}: ${error.message}`);
     }
   }
   return { sent, failed, unlinked: unlinked.length, affected: messages.length };
@@ -147,7 +154,7 @@ export function startGearReminderScheduler(client, guildId, getLinks) {
       busy = true;
       try {
         const guild = await client.guilds.fetch(guildId);
-        const result = await sendGearReminders(client, config, getLinks(guild.id));
+        const result = await sendGearReminders(guild, config, getLinks(guild.id));
         console.log(`Avisos WoWAudit de encantamientos/gemas: ${result.sent} enviados · ${result.failed} fallidos · ${result.unlinked} personajes sin vínculo.`);
       } catch (error) {
         console.error('Falló la consulta o el envío de avisos WoWAudit de encantamientos/gemas:', error.message);

@@ -1028,28 +1028,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return interaction.reply({ content: renderCauldronSchedule(guildId), flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
     }
 
-    if (interaction.commandName === 'wow-caldero-probar') {
-      if (!isOfficer(interaction)) return interaction.reply(unauthorizedReply());
-      const weekday = interaction.options.getString('dia', true);
-      const type = interaction.options.getString('tipo', true);
-      const assignment = getCauldronAssignments(guildId).find((item) => item.weekday === weekday && item.cauldron_type === type);
-      if (!assignment) return interaction.reply({ content: 'No hay una asignación para ese día y tipo de caldero.', flags: MessageFlags.Ephemeral });
-      const key = (value) => value.normalize('NFC').toLocaleLowerCase('es-ES').replace(/\s+/g, '');
-      const matches = getWowLinks(guildId).filter((link) => key(link.character_name) === key(assignment.character_name));
-      if (matches.length !== 1 || !matches[0].raider_channel_id) {
-        return interaction.reply({ content: `${assignment.character_name} no tiene una vinculación única con canal Raider.`, flags: MessageFlags.Ephemeral });
-      }
-      const channel = await interaction.guild.channels.fetch(matches[0].raider_channel_id).catch(() => null);
-      if (!channel?.isTextBased()) return interaction.reply({ content: `No puedo acceder al canal Raider de ${assignment.character_name}.`, flags: MessageFlags.Ephemeral });
-      const dayName = weekdays.find(([key]) => key === weekday)?.[1] || weekday;
-      const typeName = type === 'potis' ? 'caldero de pociones' : 'caldero de frascos';
-      await channel.send({
-        content: `🧪 <@${matches[0].user_id}> **Aviso de prueba (${dayName})**: te corresponde el ${typeName}. Este mensaje es una prueba enviada por un oficial.`,
-        allowedMentions: { users: [matches[0].user_id] }
-      });
-      return interaction.reply({ content: `Envié el aviso de prueba al canal Raider de **${assignment.character_name}**.`, flags: MessageFlags.Ephemeral });
-    }
-
   } catch (error) {
     console.error('Error al procesar interacción:', error);
     const message = 'Ha ocurrido un error. Inténtalo de nuevo o avisa a un oficial.';

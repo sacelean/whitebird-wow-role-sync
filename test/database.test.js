@@ -26,6 +26,7 @@ const {
   getWowLinks,
   getWowSyncHistory,
   markBisProposalBuilding,
+  markBisProposalAwaitingSource,
   rejectBisProposal,
   recordWowSyncChanges,
   saveBisProposalList,
@@ -61,6 +62,7 @@ test('guarda una propuesta BIS aceptada con sus objetos; rechazar otra limpia la
   };
 
   makeProposal('bis-accepted');
+  assert.equal(markBisProposalAwaitingSource('bis-accepted', 'holy', 'Holy'), true);
   assert.equal(markBisProposalBuilding('bis-accepted'), true);
   assert.equal(saveBisProposalList('bis-accepted', list), true);
   assert.equal(acceptBisProposal('bis-g', 'bis-u', 'bis-accepted'), true);

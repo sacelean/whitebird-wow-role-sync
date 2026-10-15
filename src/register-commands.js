@@ -74,16 +74,6 @@ const commands = [
   new SlashCommandBuilder()
     .setName('wow-calderos-vista')
     .setDescription('Muestra el reparto actual de calderos de forma privada (oficiales)'),
-  new SlashCommandBuilder()
-    .setName('wow-caldero-probar')
-    .setDescription('Envía un aviso de prueba al canal Raider de una asignación (oficiales)')
-    .addStringOption((option) => option.setName('dia').setDescription('Día cuya asignación se probará').setRequired(true).addChoices(
-      { name: 'Lunes', value: 'monday' }, { name: 'Martes', value: 'tuesday' },
-      { name: 'Miércoles', value: 'wednesday' }, { name: 'Jueves', value: 'thursday' }
-    ))
-    .addStringOption((option) => option.setName('tipo').setDescription('Asignación que se probará').setRequired(true).addChoices(
-      { name: 'Potis', value: 'potis' }, { name: 'Frascos', value: 'frascos' }
-    )),
 ].map((command) => command.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(token);

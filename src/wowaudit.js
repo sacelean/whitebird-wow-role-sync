@@ -167,22 +167,6 @@ function formatRaidVault(raids) {
   }).join('/');
 }
 
-function formatRaidProgress(progress) {
-  if (!progress || typeof progress !== 'object' || Array.isArray(progress)) return { value: '—', bossCount: 0 };
-  const difficulties = [['mythic','M'],['heroic','H'],['normal','N'],['raid_finder','L']];
-  const values = difficulties.map(([key,label]) => {
-    const bosses = progress[key];
-    if (!bosses || typeof bosses !== 'object' || Array.isArray(bosses)) return null;
-    const encounters = Object.values(bosses).filter(encounter => Number.isInteger(encounter?.kills) && encounter.kills >= 0);
-    return encounters.length ? { label, defeated: encounters.filter(encounter => encounter.kills > 0).length, bossCount: encounters.length } : null;
-  }).filter(Boolean);
-  if (!values.length) return { value: '—', bossCount: 0 };
-  return {
-    value: values.map(({label,defeated}) => `${label}${defeated}`).join(' '),
-    bossCount: Math.max(...values.map(({bossCount}) => bossCount))
-  };
-}
-
 export async function fetchRaiderTableReport(config, links, end = Date.now(), fetcher = fetch) {
   const period = await auditGet('/v1/period', config.apiKey, fetcher);
   const season = period?.current_season;
@@ -215,15 +199,9 @@ export async function fetchRaiderTableReport(config, links, end = Date.now(), fe
     const detail = await auditGet(`/api/characters/${character.id}`, config.apiKey, fetcher);
     requireSchema(detail?.id === character.id, `perfil incompatible para ${character.name}`);
     const profile = detail.details;
-    const raidProgress = formatRaidProgress(profile?.currentRaidProgression);
-    return [character.id, {
-      gear: Number.isFinite(profile?.currentItemLevel) && profile.currentItemLevel > 0 ? profile.currentItemLevel : null,
-      raidProgress: raidProgress.value,
-      raidBossCount: raidProgress.bossCount
-    }];
+    return [character.id, Number.isFinite(profile?.currentItemLevel) && profile.currentItemLevel > 0 ? profile.currentItemLevel : null];
   });
   const gearById = new Map(details);
-  const raidBossCount = Math.max(0, ...details.map(([,profile]) => profile.raidBossCount));
   const name = value => String(value).replace(/[|`\r\n]/g, ' ').trim().slice(0, 12);
   const rows = selected.map(character => {
     const data = weeklyById.get(character.id);
@@ -231,10 +209,9 @@ export async function fetchRaiderTableReport(config, links, end = Date.now(), fe
     const profile = gearById.get(character.id);
     return {
       character,
-      gear: profile?.gear ?? null,
+      gear: profile ?? null,
       keys: data ? formatKeyVault(data.dungeons_done) : '—/—/—',
       raidVault: data ? formatRaidVault(vault?.raids) : '-/-/-',
-      raidProgress: profile?.raidProgress ?? '—',
       loot: character.count,
       safeName: name(character.name)
     };
@@ -245,18 +222,16 @@ export async function fetchRaiderTableReport(config, links, end = Date.now(), fe
   const widths = {
     keys: Math.max(4, ...rows.map(row => row.keys.length)),
     raid: Math.max(4, ...rows.map(row => row.raidVault.length)),
-    loot: Math.max(4, ...rows.map(row => String(row.loot).length)),
-    progress: Math.max('Progreso'.length, ...rows.map(row => row.raidProgress.length))
+    loot: Math.max(4, ...rows.map(row => String(row.loot).length))
   };
   const columns = [
-    '#', 'Nombre'.padEnd(nameWidth), 'Keys'.padEnd(widths.keys), 'Raid'.padEnd(widths.raid),
-    'iLvl'.padStart(5), 'Loot'.padStart(widths.loot), 'Progreso'.padEnd(widths.progress)
+    '#', 'Nombre'.padEnd(nameWidth), 'Loot'.padStart(widths.loot), 'Keys'.padEnd(widths.keys),
+    'Raid'.padEnd(widths.raid), 'iLvl'.padStart(5)
   ];
   const header = `${columns[0].padStart(2)} ${columns.slice(1).join(' ')}`;
   const body = rows.map((row, index) => [
-    String(index + 1).padStart(2), row.safeName.padEnd(nameWidth), row.keys.padEnd(widths.keys),
-    row.raidVault.padEnd(widths.raid), number(row.gear).padStart(5), String(row.loot).padStart(widths.loot),
-    row.raidProgress.padEnd(widths.progress)
+    String(index + 1).padStart(2), row.safeName.padEnd(nameWidth), String(row.loot).padStart(widths.loot),
+    row.keys.padEnd(widths.keys), row.raidVault.padEnd(widths.raid), number(row.gear).padStart(5)
   ].join(' ')).join('\n');
   const divider = '─'.repeat(header.length);
   const rosterSummary = `Roster en seguimiento: ${config.ranks.join(', ')} · ${ranking.size} personajes · **${ranking.total} objetos**.`;
@@ -265,19 +240,19 @@ export async function fetchRaiderTableReport(config, links, end = Date.now(), fe
     `**Raiders · ${new Date(end).toISOString().slice(0, 10)} · p${period.current_period}**`,
     rosterSummary,
     filtersSummary,
-    `Keys/Raid vault · iLvl · Loot total · Progreso M/H/N/L = bosses derrotados (${raidBossCount} en temporada).`,
+    `Loot total · Keys/Raid vault · iLvl actual.`,
     `\`\`\`text\n${header}\n${divider}\n${body}\n\`\`\``,
     `Período de loot: desde ${startDate} · alts por separado · — = sin datos.`
   ].join('\n');
   let messageContent = content;
   if (messageContent.length > 2000) {
-    const compactHeader = `# ${'Nombre'.padEnd(nameWidth)} Keys Raid iLvl Loot Prog.`;
-    const compactBody = rows.map((row, index) => `${String(index + 1).padStart(2)} ${row.safeName.padEnd(nameWidth)} ${row.keys} ${row.raidVault} ${number(row.gear)} ${row.loot} ${row.raidProgress}`).join('\n');
+    const compactHeader = `# ${'Nombre'.padEnd(nameWidth)} Loot Keys Raid iLvl`;
+    const compactBody = rows.map((row, index) => `${String(index + 1).padStart(2)} ${row.safeName.padEnd(nameWidth)} ${row.loot} ${row.keys} ${row.raidVault} ${number(row.gear)}`).join('\n');
     messageContent = [
       `**Raiders · ${new Date(end).toISOString().slice(0, 10)} · p${period.current_period}**`,
       rosterSummary,
       filtersSummary,
-      `Keys/Raid vault · iLvl · Loot total · Progreso M/H/N/L = bosses derrotados (${raidBossCount} en temporada).`,
+      `Loot total · Keys/Raid vault · iLvl actual.`,
       `\`\`\`text\n${compactHeader}\n${compactBody}\n\`\`\``,
       `Período desde ${startDate} · alts separados · — = sin datos.`
     ].join('\n');
