@@ -249,16 +249,42 @@ export async function fetchRaiderTableReport(config, links, end = Date.now(), fe
   const number = value => value === null ? '—' : Number.isInteger(value) ? String(value) : value.toFixed(1);
   const nameWidth = Math.max(4, ...rows.map(row => row.safeName.length));
   const categoryLabels = config.categories.map(category => category === 'BIS' ? 'B' : category === 'Mejora de stats' ? 'S' : category === 'set 4p' ? '4p' : category === 'Catalizar' ? 'C' : name(category).slice(0, 4));
-  const header = `# ${'Nombre'.padEnd(nameWidth)} Keys Raid iLvl Asist. Loot ${categoryLabels.join('/')}=total /raid`;
-  const body = rows.map((row, index) => `${String(index + 1).padStart(2)} ${row.safeName.padEnd(nameWidth)} ${row.keys} ${row.raidVault} ${number(row.gear)} ${row.presence} ${row.loot} ${row.lootPerRaid}`).join('\n');
+  const widths = {
+    keys: Math.max(4, ...rows.map(row => row.keys.length)),
+    raid: Math.max(4, ...rows.map(row => row.raidVault.length)),
+    attendance: Math.max(6, ...rows.map(row => row.presence.length)),
+    loot: Math.max(`Loot ${categoryLabels.join('/')}=T`.length, ...rows.map(row => row.loot.length))
+  };
+  const columns = [
+    '#', 'Nombre'.padEnd(nameWidth), 'Keys'.padEnd(widths.keys), 'Raid'.padEnd(widths.raid),
+    'iLvl'.padStart(5), 'Asist.'.padEnd(widths.attendance), `Loot ${categoryLabels.join('/')}=T`.padEnd(widths.loot), '/raid'
+  ];
+  const header = `${columns[0].padStart(2)} ${columns.slice(1).join(' ')}`;
+  const body = rows.map((row, index) => [
+    String(index + 1).padStart(2), row.safeName.padEnd(nameWidth), row.keys.padEnd(widths.keys),
+    row.raidVault.padEnd(widths.raid), number(row.gear).padStart(5), row.presence.padEnd(widths.attendance),
+    row.loot.padEnd(widths.loot), row.lootPerRaid
+  ].join(' ')).join('\n');
+  const divider = '─'.repeat(header.length);
   const content = [
     `**Raiders · ${new Date(end).toISOString().slice(0, 10)} · p${period.current_period}**`,
     `Keys/Raid vault · iLvl · Asist%/ausencias · Loot ${categoryLabels.join('/')}=total · /raid`,
-    `\`\`\`text\n${header}\n${body}\n\`\`\``,
+    `\`\`\`text\n${header}\n${divider}\n${body}\n\`\`\``,
     `Asistencia y loot: ${startDate}–${endDate} · alts por separado · — = sin datos.`
   ].join('\n');
-  requireSchema(content.length <= 2000, 'la tabla completa supera el límite de 2000 caracteres de un mensaje Discord');
-  return { content, allowedMentions: { parse: [] } };
+  let messageContent = content;
+  if (messageContent.length > 2000) {
+    const compactHeader = `# ${'Nombre'.padEnd(nameWidth)} Keys Raid iLvl Asist Loot ${categoryLabels.join('/')}=T /R`;
+    const compactBody = rows.map((row, index) => `${String(index + 1).padStart(2)} ${row.safeName.padEnd(nameWidth)} ${row.keys} ${row.raidVault} ${number(row.gear)} ${row.presence} ${row.loot} ${row.lootPerRaid}`).join('\n');
+    messageContent = [
+      `**Raiders · ${new Date(end).toISOString().slice(0, 10)} · p${period.current_period}**`,
+      `Keys/Raid vault · iLvl · Asist%/ausencias · Loot ${categoryLabels.join('/')}=total · /raid`,
+      `\`\`\`text\n${compactHeader}\n${compactBody}\n\`\`\``,
+      `Período ${startDate}–${endDate} · alts separados · — = sin datos.`
+    ].join('\n');
+  }
+  requireSchema(messageContent.length <= 2000, 'la tabla completa supera el límite de 2000 caracteres de un mensaje Discord');
+  return { content: messageContent, allowedMentions: { parse: [] } };
 }
 
 export function weeklySlot(now = Date.now()) {
