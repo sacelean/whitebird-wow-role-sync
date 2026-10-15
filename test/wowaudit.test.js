@@ -146,8 +146,8 @@ test('loot report renders all 23 rows within Discord embed limits and without me
  assert.ok(text.length<=4096);
  assert.deepEqual(report.allowedMentions,{parse:[]});
 });
-test('raider table is a normal Discord message with all 23 rows under the content limit',async()=>{
- const reportRoster=Array.from({length:23},(_,i)=>({...roster[0],id:i+1,name:`Raider${String(i).padStart(2,'0')}`,rank:'Fijo'}));
+test('raider table is a normal Discord message with all 30 rows under the content limit',async()=>{
+ const reportRoster=Array.from({length:30},(_,i)=>({...roster[0],id:i+1,name:`Raider${String(i).padStart(6,'0')}`,rank:'Fijo'}));
  const period=JSON.parse(readFileSync(new URL('./fixtures/wowaudit-period-live.json',import.meta.url)));
  const report=await fetchRaiderTableReport({apiKey:'test',days:30,categories:['BIS','Mejora de stats','set 4p','Catalizar'],ranks:['Fijo']},[],Date.parse('2026-10-13T18:00Z'),async(url)=>{
   const path=new URL(url).pathname;
@@ -161,8 +161,8 @@ test('raider table is a normal Discord message with all 23 rows under the conten
  assert.equal(typeof report.content,'string');
  assert.equal(Object.hasOwn(report,'embeds'),false);
  assert.ok(report.content.length<=2000,`message content was ${report.content.length} characters`);
- assert.equal(report.content.split('\n').filter(line=>/^\s*\d+ Raider\d+/.test(line)).length,23);
- assert.match(report.content,/Loot B\/S\/4p\/C/);
+ assert.equal(report.content.split('\n').filter(line=>/^\s*\d+ Raider\d+/.test(line)).length,30);
+ assert.match(report.content,/Loot B\/S\/4p\/C=total/);
  assert.deepEqual(report.allowedMentions,{parse:[]});
 });
 test('API configuration has no destination; only the command stores a channel',()=>{

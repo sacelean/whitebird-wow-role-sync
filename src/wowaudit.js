@@ -229,7 +229,7 @@ export async function fetchRaiderTableReport(config, links, end = Date.now(), fe
       const attended = attendanceRow.attended_amount_of_raids;
       const total = attendanceRow.total_amount_of_raids;
       requireSchema(attended >= 0 && attended <= total, 'porcentaje de asistencia incoherente');
-      presence = total ? `${attended}/${total} ${Math.round(attended / total * 100)}%` : '0/0 —';
+      presence = total ? `${Math.round(attended / total * 100)}%/${total - attended}` : '—';
       raidsAttended = attended;
     }
     const breakdown = config.categories.map(category => character.categoryCounts[category] || 0).join('/');
@@ -240,22 +240,22 @@ export async function fetchRaiderTableReport(config, links, end = Date.now(), fe
       keys: data ? formatKeyVault(data.dungeons_done) : '—/—/—',
       raidVault: data ? formatRaidVault(vault?.raids) : '-/-/-',
       presence,
-      loot: `${character.count} (${breakdown})`,
+      loot: `${breakdown}=${character.count}`,
       lootPerRaid,
       safeName: name(character.name)
     };
   }).sort((a, b) => (b.gear ?? -1) - (a.gear ?? -1) || identity(a.character.name, a.character.realm).localeCompare(identity(b.character.name, b.character.realm), 'en'));
 
-  const number = (value, width) => value === null ? '—'.padStart(width) : value.toFixed(1).padStart(width);
+  const number = value => value === null ? '—' : Number.isInteger(value) ? String(value) : value.toFixed(1);
   const nameWidth = Math.max(4, ...rows.map(row => row.safeName.length));
   const categoryLabels = config.categories.map(category => category === 'BIS' ? 'B' : category === 'Mejora de stats' ? 'S' : category === 'set 4p' ? '4p' : category === 'Catalizar' ? 'C' : name(category).slice(0, 4));
-  const header = `# ${'Nombre'.padEnd(nameWidth)} Keys     Raid      iLvl Asist.       Loot ${categoryLabels.join('/')} /raid`;
-  const body = rows.map((row, index) => `${String(index + 1).padStart(2)} ${row.safeName.padEnd(nameWidth)} ${row.keys.padEnd(7)} ${row.raidVault.padEnd(8)} ${number(row.gear, 4)} ${row.presence.padEnd(10)} ${row.loot.padEnd(15)} ${row.lootPerRaid}`).join('\n');
+  const header = `# ${'Nombre'.padEnd(nameWidth)} Keys Raid iLvl Asist. Loot ${categoryLabels.join('/')}=total /raid`;
+  const body = rows.map((row, index) => `${String(index + 1).padStart(2)} ${row.safeName.padEnd(nameWidth)} ${row.keys} ${row.raidVault} ${number(row.gear)} ${row.presence} ${row.loot} ${row.lootPerRaid}`).join('\n');
   const content = [
-    `**Resumen de raiders · ${new Date(end).toISOString().slice(0, 10)} · período ${period.current_period}**`,
-    `Equipo: best_gear · asistencia/loot: ${startDate}–${endDate} · categorías: ${config.categories.map(name).join('/')}.`,
+    `**Raiders · ${new Date(end).toISOString().slice(0, 10)} · p${period.current_period}**`,
+    `Keys/Raid vault · iLvl · Asist%/ausencias · Loot ${categoryLabels.join('/')}=total · /raid`,
     `\`\`\`text\n${header}\n${body}\n\`\`\``,
-    `Vault raid: niveles de objeto · loot/raid: loot Mythic por raid asistida · alts por separado · — = sin datos.`
+    `Asistencia y loot: ${startDate}–${endDate} · alts por separado · — = sin datos.`
   ].join('\n');
   requireSchema(content.length <= 2000, 'la tabla completa supera el límite de 2000 caracteres de un mensaje Discord');
   return { content, allowedMentions: { parse: [] } };
