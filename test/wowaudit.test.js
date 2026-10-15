@@ -154,7 +154,6 @@ test('raider table stays readable for 23 and fits Discord content limits up to 3
    const path=new URL(url).pathname;
    const data=path==='/v1/period'?{...period,current_period:1090}:path==='/v1/characters'?reportRoster:
     path==='/v1/historical_data'?{characters:reportRoster.map(c=>({id:c.id,data:{dungeons_done:[{level:18}],vault_options:{raids:{option_1:17,option_2:null,option_3:null}}}}))}:
-    path==='/v1/attendance'?{characters:reportRoster.map(c=>({id:c.id,attended_amount_of_raids:2,total_amount_of_raids:3}))}:
     path==='/v1/loot_history/18'?{history_items:[]}:
     {character:{id:Number(path.split('/').at(-1))},best_gear:{head:{ilvl:329}}};
    return {ok:true,json:async()=>data};
@@ -163,7 +162,8 @@ test('raider table stays readable for 23 and fits Discord content limits up to 3
   assert.equal(Object.hasOwn(report,'embeds'),false);
   assert.ok(report.content.length<=2000,`message content was ${report.content.length} characters for ${size} rows`);
   assert.equal(report.content.split('\n').filter(line=>/^\s*\d+ Raider\d+/.test(line)).length,size);
-  assert.match(report.content,/Loot B\/S\/4p\/C=total/);
+  assert.match(report.content,/iLvl\s+Loot/);
+  assert.doesNotMatch(report.content,/Asist|\/raid/);
   if(size===23) assert.match(report.content,/─{20,}/,'23 rows should use the aligned table layout');
   assert.deepEqual(report.allowedMentions,{parse:[]});
  }
