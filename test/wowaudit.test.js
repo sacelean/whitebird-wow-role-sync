@@ -100,7 +100,7 @@ test('invalid legacy season identifier is rejected rather than falling back sile
  assert.equal(calls,1);
 });
 
-test('real Whitebird rank distribution includes 23 tracked characters and excludes seven trials',()=>{
+test('real Whitebird rank distribution includes all 30 tracked characters including trials',()=>{
  const tracked=[];
  for(const [rank,count] of [['Oficiales',3],['Fijo',17],['Rotativo',3],['Trial',7]]) {
   for(let i=0;i<count;i++) tracked.push({...roster[0],id:tracked.length+1,name:`Character${tracked.length}`,rank});
@@ -108,14 +108,14 @@ test('real Whitebird rank distribution includes 23 tracked characters and exclud
  tracked.push({...roster[0],id:31,name:'Inactive',rank:'Fijo',status:'pending'});
  const loot=[...history.map((item,i)=>({...item,id:i+1,rclootcouncil_id:`live-${i}`,character_id:i===0?1:24,response_type:{name:'BIS'}}))];
  const result=buildLootRanking(tracked,loot,[],{start:options.start,end:options.end});
- assert.equal(result.size,23); assert.equal(result.total,1); assert.equal(result.all.at(-1).count,0);
- assert.ok(result.all.every(c=>c.rank!=='Trial'));
+ assert.equal(result.size,30); assert.equal(result.total,2); assert.equal(result.all.at(-1).count,0);
+ assert.equal(result.all.filter(c=>c.rank==='Trial').length,7);
  const configured=buildLootRanking(tracked,loot,[],{start:options.start,end:options.end,ranks:[' fijo ']});
  assert.equal(configured.size,17);
 });
 test('rank configuration defaults to the verified ranks and rejects empty entries',()=>{
  const env={WOWAUDIT_API_KEY:'test'};
- assert.deepEqual(getLootConfig(env).ranks,['Oficiales','Fijo','Rotativo']);
+ assert.deepEqual(getLootConfig(env).ranks,['Oficiales','Fijo','Rotativo','Trial']);
  assert.throws(()=>getLootConfig({...env,WOWAUDIT_LOOT_RANKS:'Fijo,'}),/WOWAUDIT_LOOT_RANKS/);
 });
 

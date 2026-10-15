@@ -1,7 +1,7 @@
 // Contract: https://wowaudit.com/api (official embedded Swagger, verified 2026-10-13).
 const key = (s) => s.normalize('NFC').toLowerCase().replace(/[\s’']/g, '').replace(/-/g, '');
 const identity = (name, realm) => `${key(name)}:${key(realm)}`;
-export const DEFAULT_LOOT_RANKS = ['Oficiales', 'Fijo', 'Rotativo'];
+export const DEFAULT_LOOT_RANKS = ['Oficiales', 'Fijo', 'Rotativo', 'Trial'];
 export const DEFAULT_LOOT_CATEGORIES = ['BIS', 'Mejora de stats', 'set 4p', 'Catalizar'];
 const categoryKey = s => s.normalize('NFC').trim().toLocaleLowerCase('es-ES').replace(/\s+/g, ' ');
 const positiveId = (n) => Number.isSafeInteger(n) && n > 0;
