@@ -30,7 +30,7 @@ export async function updateLootPanel(guild, config, payload, store, slot = null
       throw new LootPanelError(uncertainHint.replace('la creación del mensaje', `la creación del mensaje del ${reportName}`));
     }
     if (slot && panel?.last_slot === slot) return { channelId: channel.id, messageId: panel.message_id, updated: false };
-    const options = { ...payload, content: null, attachments: [], allowedMentions: { parse: [] } };
+    const options = { ...payload, content: payload.content ?? null, embeds: payload.embeds ?? [], attachments: [], allowedMentions: { parse: [] } };
     if (panel?.message_id) {
       let message;
       try {

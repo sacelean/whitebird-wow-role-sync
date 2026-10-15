@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { auditGet, buildLootRanking, fetchLootReport, getLootConfig, lootErrorMessage, weeklySlot, weeklyCutoff } from '../src/wowaudit.js';
+import { auditGet, buildLootRanking, fetchLootReport, fetchRaiderTableReport, getLootConfig, lootErrorMessage, weeklySlot, weeklyCutoff } from '../src/wowaudit.js';
 const fixture = JSON.parse(readFileSync(new URL('./fixtures/wowaudit.json',import.meta.url)));
 const roster = fixture['/v1/characters'];
 const history = fixture['/v1/loot_history/{id}'].history_items;
@@ -137,13 +137,32 @@ test('conflicting duplicate category mappings cancel the report',()=>{
  assert.throws(()=>buildLootRanking(roster,[original,{...original,response_type:{name:'Necesidad',propagated_to:{name:'OFF SPEC'}}}],[],options));
 });
 
-test('report renders all 23 rows in one message with Discord embed limits and no mentions',async()=>{
+test('loot report renders all 23 rows within Discord embed limits and without mentions',async()=>{
  const reportRoster=Array.from({length:23},(_,i)=>({...roster[0],id:i+1,name:`Character${i}`,rank:'Fijo'}));
  const period=JSON.parse(readFileSync(new URL('./fixtures/wowaudit-period-live.json',import.meta.url)));
  const report=await fetchLootReport({apiKey:'test',categories:['BIS']},[],Date.parse('2026-10-13T18:00Z'),async(url)=>({ok:true,json:async()=>url.endsWith('/period')?period:url.endsWith('/characters')?reportRoster:{history_items:[]}}));
- const text=report.embeds[0].fields.map(f=>f.value).join('\n');
- assert.equal(text.split('\n').length,23);
- assert.ok(report.embeds[0].fields.every(f=>f.value.length<=1024));
+ const text=report.embeds[0].description;
+ assert.equal(text.split('\n').filter(line=>/^\d+\. \*\*Character/.test(line)).length,23);
+ assert.ok(text.length<=4096);
+ assert.deepEqual(report.allowedMentions,{parse:[]});
+});
+test('raider table is a normal Discord message with all 23 rows under the content limit',async()=>{
+ const reportRoster=Array.from({length:23},(_,i)=>({...roster[0],id:i+1,name:`Raider${String(i).padStart(2,'0')}`,rank:'Fijo'}));
+ const period=JSON.parse(readFileSync(new URL('./fixtures/wowaudit-period-live.json',import.meta.url)));
+ const report=await fetchRaiderTableReport({apiKey:'test',days:30,categories:['BIS','Mejora de stats','set 4p','Catalizar'],ranks:['Fijo']},[],Date.parse('2026-10-13T18:00Z'),async(url)=>{
+  const path=new URL(url).pathname;
+  const data=path==='/v1/period'?{...period,current_period:1090}:path==='/v1/characters'?reportRoster:
+   path==='/v1/historical_data'?{characters:reportRoster.map(c=>({id:c.id,data:{dungeons_done:[{level:18}],vault_options:{raids:{option_1:17,option_2:null,option_3:null}}}}))}:
+   path==='/v1/attendance'?{characters:reportRoster.map(c=>({id:c.id,attended_amount_of_raids:2,total_amount_of_raids:3}))}:
+   path==='/v1/loot_history/18'?{history_items:[]}:
+   {character:{id:Number(path.split('/').at(-1))},best_gear:{head:{ilvl:329}}};
+  return {ok:true,json:async()=>data};
+ });
+ assert.equal(typeof report.content,'string');
+ assert.equal(Object.hasOwn(report,'embeds'),false);
+ assert.ok(report.content.length<=2000,`message content was ${report.content.length} characters`);
+ assert.equal(report.content.split('\n').filter(line=>/^\s*\d+ Raider\d+/.test(line)).length,23);
+ assert.match(report.content,/Loot B\/S\/4p\/C/);
  assert.deepEqual(report.allowedMentions,{parse:[]});
 });
 test('API configuration has no destination; only the command stores a channel',()=>{

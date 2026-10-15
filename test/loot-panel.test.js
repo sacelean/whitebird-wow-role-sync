@@ -4,8 +4,8 @@ import { updateLootPanel, resolveLootChannel } from '../src/loot-panel.js';
 const payload = { embeds:[{title:'Roster',description:'Everyone'}] };
 function setup() {
   let row=null;
-  const calls={send:0,edit:0,fetch:0};
-  const message={id:'message',author:{id:'bot'},edit:async options=>{calls.edit++; assert.deepEqual(options.allowedMentions,{parse:[]}); assert.equal(options.content,null);}};
+  const calls={send:0,edit:0,fetch:0,editOptions:null};
+  const message={id:'message',author:{id:'bot'},edit:async options=>{calls.edit++;calls.editOptions=options;assert.deepEqual(options.allowedMentions,{parse:[]});}};
   const channel={id:'channel',name:'any-configured-channel',isTextBased:()=>true,
     send:async options=>{calls.send++; assert.deepEqual(options.allowedMentions,{parse:[]}); return message;},
     messages:{fetch:async options=>{calls.fetch++; assert.equal(options.force,true); return message;}}};
@@ -24,7 +24,16 @@ test('first publish creates once; subsequent manual and weekly refreshes edit sa
  await updateLootPanel(s.guild,config,payload,s.store);
  await updateLootPanel(s.guild,config,payload,s.store,'2026-10-14');
  assert.equal(s.calls.send,1); assert.equal(s.calls.edit,2);
+ assert.equal(s.calls.editOptions.content,null);
  assert.equal(s.store.get().message_id,'message');
+});
+test('editing a saved panel replaces its embed with normal message content',async()=>{
+ const s=setup(); await updateLootPanel(s.guild,config,payload,s.store);
+ const textPayload={content:'**Resumen**\n```text\n# Nombre\n 1 Raider\n```'};
+ await updateLootPanel(s.guild,config,textPayload,s.store);
+ assert.equal(s.calls.send,1); assert.equal(s.calls.edit,1);
+ assert.equal(s.calls.editOptions.content,textPayload.content);
+ assert.deepEqual(s.calls.editOptions.embeds,[]);
 });
 test('only Unknown Message creates a replacement',async()=>{
  const s=setup(); await updateLootPanel(s.guild,config,payload,s.store);
@@ -46,7 +55,7 @@ test('uncertain creation remains claimed after failure and cannot resend',async(
 });
 test('missing ID is rejected without channel discovery',async()=>{
  const s=setup(); s.guild.channels.fetch=async()=>{throw new Error('should not fetch');};
- await assert.rejects(resolveLootChannel(s.guild,{}),/wow-loot-actualizar canal/);
+ await assert.rejects(resolveLootChannel(s.guild,{}),/Elige un canal/);
 });
 test('never edits a message owned by another bot',async()=>{
  const s=setup(); await updateLootPanel(s.guild,config,payload,s.store);

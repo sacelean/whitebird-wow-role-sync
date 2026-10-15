@@ -218,7 +218,7 @@ export async function fetchRaiderTableReport(config, links, end = Date.now(), fe
     return [character.id, averageGearLevel(detail.best_gear)];
   });
   const gearById = new Map(details);
-  const name = value => String(value).replace(/[|`\r\n]/g, ' ').trim().slice(0, 18);
+  const name = value => String(value).replace(/[|`\r\n]/g, ' ').trim().slice(0, 12);
   const rows = selected.map(character => {
     const data = weeklyById.get(character.id);
     const vault = data?.vault_options;
@@ -249,20 +249,16 @@ export async function fetchRaiderTableReport(config, links, end = Date.now(), fe
   const number = (value, width) => value === null ? '—'.padStart(width) : value.toFixed(1).padStart(width);
   const nameWidth = Math.max(4, ...rows.map(row => row.safeName.length));
   const categoryLabels = config.categories.map(category => category === 'BIS' ? 'B' : category === 'Mejora de stats' ? 'S' : category === 'set 4p' ? '4p' : category === 'Catalizar' ? 'C' : name(category).slice(0, 4));
-  const header = `#  ${'Nombre'.padEnd(nameWidth)}  Keys    Raid Vault  iLvl   Asist.      Loot (${categoryLabels.join('/')})  Loot/raid`;
-  const body = rows.map((row, index) => `${String(index + 1).padStart(2)} ${row.safeName.padEnd(nameWidth)}  ${row.keys.padEnd(7)} ${row.raidVault.padEnd(11)} ${number(row.gear, 5)}  ${row.presence.padEnd(10)} ${row.loot.padEnd(16)} ${row.lootPerRaid}`).join('\n');
-  const description = [
-    `Bóveda de ${new Date(end).toISOString().slice(0, 10)} · período WoWAudit ${period.current_period}.`,
-    `Equipo medio calculado desde best_gear; asistencia y loot entre ${startDate} y ${endDate}. Categorías: ${config.categories.map(name).join('/')}.`,
-    `Vault de raid muestra los niveles de objeto de las tres opciones; WoWAudit no devuelve las etiquetas M/H directamente. Loot/raid = objetos Mythic seleccionados por raid asistida.`,
-    `\`\`\`text\n${header}\n${body}\n\`\`\``
-  ].join('\n\n');
-  const embed = {
-    title: 'Resumen de raiders', color: 0x488ac7, description,
-    footer: { text: `Roster actual tracking: ${rows.length} personajes · alts cuentan por personaje · sin datos se muestra —.` }
-  };
-  requireSchema(description.length <= 4096 && embed.title.length + description.length + embed.footer.text.length <= 6000, 'la tabla completa supera el límite de un mensaje Discord');
-  return { embeds: [embed], allowedMentions: { parse: [] } };
+  const header = `# ${'Nombre'.padEnd(nameWidth)} Keys     Raid      iLvl Asist.       Loot ${categoryLabels.join('/')} /raid`;
+  const body = rows.map((row, index) => `${String(index + 1).padStart(2)} ${row.safeName.padEnd(nameWidth)} ${row.keys.padEnd(7)} ${row.raidVault.padEnd(8)} ${number(row.gear, 4)} ${row.presence.padEnd(10)} ${row.loot.padEnd(15)} ${row.lootPerRaid}`).join('\n');
+  const content = [
+    `**Resumen de raiders · ${new Date(end).toISOString().slice(0, 10)} · período ${period.current_period}**`,
+    `Equipo: best_gear · asistencia/loot: ${startDate}–${endDate} · categorías: ${config.categories.map(name).join('/')}.`,
+    `\`\`\`text\n${header}\n${body}\n\`\`\``,
+    `Vault raid: niveles de objeto · loot/raid: loot Mythic por raid asistida · alts por separado · — = sin datos.`
+  ].join('\n');
+  requireSchema(content.length <= 2000, 'la tabla completa supera el límite de 2000 caracteres de un mensaje Discord');
+  return { content, allowedMentions: { parse: [] } };
 }
 
 export function weeklySlot(now = Date.now()) {
