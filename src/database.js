@@ -46,6 +46,14 @@ db.exec(`
     role_name TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
+  CREATE TABLE IF NOT EXISTS published_release_notes (
+    guild_id TEXT NOT NULL,
+    release_id TEXT NOT NULL,
+    channel_id TEXT NOT NULL,
+    message_id TEXT NOT NULL,
+    published_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (guild_id, release_id)
+  );
   CREATE INDEX IF NOT EXISTS idx_wow_sync_history_guild_id ON wow_sync_history(guild_id, id DESC);
 `);
 
@@ -69,6 +77,15 @@ export function getWowLinks(guildId) {
 
 export function getWowLink(guildId, userId) {
   return db.prepare('SELECT character_name, realm_slug FROM wow_links WHERE guild_id = ? AND user_id = ?').get(guildId, userId);
+}
+
+export function getPublishedReleaseNote(guildId, releaseId) {
+  return db.prepare('SELECT channel_id, message_id FROM published_release_notes WHERE guild_id = ? AND release_id = ?').get(guildId, releaseId) || null;
+}
+
+export function savePublishedReleaseNote(guildId, releaseId, channelId, messageId) {
+  return db.prepare(`INSERT OR IGNORE INTO published_release_notes (guild_id, release_id, channel_id, message_id)
+    VALUES (?, ?, ?, ?)`).run(guildId, releaseId, channelId, messageId);
 }
 
 export function removeWowLink(guildId, userId) {

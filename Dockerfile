@@ -13,6 +13,7 @@ ENV NODE_ENV=production
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --chown=node:node package*.json ./
 COPY --chown=node:node src ./src
+COPY --chown=node:node RELEASE_NOTES.md ./RELEASE_NOTES.md
 COPY --chown=node:node test ./test
 RUN mkdir -p /app/data && chown -R node:node /app
 USER node

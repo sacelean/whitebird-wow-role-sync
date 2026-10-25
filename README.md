@@ -1,5 +1,7 @@
 # Whitebird WoW Role Sync
 
+[Release notes](RELEASE_NOTES.md)
+
 Bot de Discord independiente para vincular mains del roster de la guild en Blizzard y sincronizar roles de rango y profesión. No contiene comandos ni código de la ruleta de alters.
 
 ## Flujo
@@ -46,6 +48,7 @@ DISCORD_CLIENT_ID=...
 DISCORD_GUILD_ID=...
 OFFICER_ROLE_IDS=id_rol_oficial,id_rol_oficial2
 OFFICER_REPORT_CHANNEL_ID=id_canal_de_informes
+RELEASE_NOTES_CHANNEL_ID=id_canal_entrada
 BLIZZARD_CLIENT_ID=...
 BLIZZARD_CLIENT_SECRET=...
 WOW_REGION=eu
@@ -64,6 +67,8 @@ Los rangos son las posiciones numéricas del roster de Blizzard (0 es Guild Mast
 La sincronización automática diaria se configura con `WOW_SYNC_HOUR` (hora de 0 a 23) y `WOW_SYNC_TIMEZONE` (zona IANA, por ejemplo `Europe/Madrid`). `/sincronizacion-ejecutar` también mantiene los canales asociados con el formato `rol-nombre-reino`: obtiene el nombre del rol actual a partir de los IDs configurados en `WOW_RANK_ROLE_IDS` y, si corresponde, de `WOW_DEFAULT_RANK_ROLE_ID`. Si no encuentra uno de esos roles en el miembro, usa `raider`. El bot debe poder ver y gestionar el canal. Los cambios y los fallos de permisos aparecen en el informe.
 
 Configura `OFFICER_REPORT_CHANNEL_ID` con un canal de texto privado para oficiales. Cada sincronización diaria publicará allí el resumen de cambios de roles, canales renombrados y omisiones. El bot necesita permiso para ver y enviar mensajes en ese canal.
+
+Configura `RELEASE_NOTES_CHANNEL_ID` con el ID del canal de entrada. Al arrancar, el bot publica la sección más reciente (`## ...`) de `RELEASE_NOTES.md` una sola vez; guarda el identificador de la nota en SQLite para no repetirla tras reiniciar. Cuando prepares otra versión, añade su sección al principio del archivo y despliega el bot. Dale permiso para ver y enviar mensajes en el canal.
 
 ## Reparto y avisos de calderos
 
@@ -119,7 +124,7 @@ docker compose run --rm --no-deps bot npm run register
 docker compose up -d
 ```
 
-La base de datos permanece en `data/` aunque se reconstruya o se pare el contenedor. Añade `OFFICER_REPORT_CHANNEL_ID` al `.env` del servidor para habilitar los informes diarios.
+La base de datos permanece en `data/` aunque se reconstruya o se pare el contenedor. Añade `OFFICER_REPORT_CHANNEL_ID` al `.env` del servidor para habilitar los informes diarios y `RELEASE_NOTES_CHANNEL_ID` para anunciar las versiones.
 
 La carpeta `data/` del host contiene `whitebird-wow-roles.sqlite`. Para que el bot de recruitment comparta los vínculos de los applies aceptados, configura allí `WOW_ROLE_SYNC_DATA_DIR` con la ruta absoluta a esta carpeta; ambos contenedores deben montar esa misma carpeta.
 

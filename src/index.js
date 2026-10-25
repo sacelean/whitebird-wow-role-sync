@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { updateLootPanel } from './loot-panel.js';
 import { startLootScheduler } from './loot-scheduler.js';
 import { startGearReminderScheduler } from './gear-reminders.js';
+import { publishLatestReleaseNote } from './release-notes.js';
 import { getLootConfig, fetchRaiderTableReport, lootErrorMessage } from './wowaudit.js';
 import { auditGet } from './wowaudit.js';
 import { BisListError, buildBisList, buildMethodBisList, fetchBlingClasses, formatBisProposal } from './bis-lists.js';
@@ -69,6 +70,7 @@ if (!token || !guildId) throw new Error('Configura DISCORD_TOKEN y DISCORD_GUILD
 
 const officerRoleIds = new Set((process.env.OFFICER_ROLE_IDS || '').split(',').map((id) => id.trim()).filter(Boolean));
 const officerReportChannelId = (process.env.OFFICER_REPORT_CHANNEL_ID || '').trim();
+const releaseNotesChannelId = (process.env.RELEASE_NOTES_CHANNEL_ID || '').trim();
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const pendingWowLinks = new Map();
 const weekdays = [
@@ -712,6 +714,8 @@ function scheduleDailySync(readyClient, hour, timeZone) {
 
 client.once(Events.ClientReady, (readyClient) => {
   console.log(`Whitebird WoW Role Sync conectado como ${readyClient.user.tag}`);
+  void publishLatestReleaseNote(readyClient, guildId, releaseNotesChannelId)
+    .catch((error) => console.error('No se pudieron publicar las release notes:', error.message));
   if (!officerReportChannelId) console.warn('Configura OFFICER_REPORT_CHANNEL_ID para recibir el informe diario automático en Discord.');
   seedCauldronAssignments(guildId, [
     { weekday: 'monday', type: 'potis', characterName: 'Asherrna' },
