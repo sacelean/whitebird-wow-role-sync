@@ -1,4 +1,4 @@
-FROM node:22-bookworm-slim AS build
+FROM node:22.23.4-bookworm-slim AS build
 WORKDIR /app
 ENV NODE_ENV=production
 RUN apt-get update \
@@ -7,7 +7,7 @@ RUN apt-get update \
 COPY package*.json ./
 RUN npm ci --omit=dev
 
-FROM node:22-bookworm-slim
+FROM node:22.23.4-bookworm-slim
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
