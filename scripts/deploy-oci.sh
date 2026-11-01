@@ -39,7 +39,9 @@ exec 9>.deploy.lock
 flock -n 9
 docker compose config --quiet
 docker compose build bot
-docker compose run --rm --no-deps bot npm run register
+# Compose run attaches stdin by default. Do not let it consume the remaining
+# commands of this script, which SSH sends to bash through stdin.
+docker compose run -T --rm --no-deps bot npm run register < /dev/null
 started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 docker compose up -d --no-deps --force-recreate bot
 container=$(docker compose ps -q bot)
