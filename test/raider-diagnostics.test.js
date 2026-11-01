@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { logLootFailure } from '../src/loot-diagnostics.js';
+import { logRaiderFailure } from '../src/raider-diagnostics.js';
 test('diagnostics preserve HTTP/Discord codes and rejected field paths without secrets or bodies',()=>{
  let line;
- const result=logLootFailure('create-message',{
+ const result=logRaiderFailure('create-message',{
   name:'DiscordAPIError[50035]',status:400,code:50035,message:'API KEY secret',
   url:'https://discord.com/token-secret',requestBody:{token:'secret'},
   rawError:{message:'secret',errors:{embeds:{0:{description:{_errors:[{code:'BASE_TYPE_MAX_LENGTH',message:'secret-description'}]}}}}}
@@ -13,10 +13,10 @@ test('diagnostics preserve HTTP/Discord codes and rejected field paths without s
  assert.doesNotMatch(line,/secret|API KEY|https:/);
 });
 test('blocked creation is logged as state with no invented original cause',()=>{
- const result=logLootFailure('blocked-creation',null,{panelStatus:'creating'},()=>{});
+ const result=logRaiderFailure('blocked-creation',null,{panelStatus:'creating'},()=>{});
  assert.equal(result.status,null); assert.equal(result.code,null); assert.equal(result.panelStatus,'creating');
 });
 test('network causes are logged by code only',()=>{
- const result=logLootFailure('create-message',{cause:{code:'ECONNRESET',message:'private data'}},{},()=>{});
+ const result=logRaiderFailure('create-message',{cause:{code:'ECONNRESET',message:'private data'}},{},()=>{});
  assert.equal(result.causeCode,'ECONNRESET');
 });

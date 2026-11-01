@@ -6,14 +6,14 @@ export const DEFAULT_LOOT_CATEGORIES = ['BIS', 'Mejora de stats', 'set 4p', 'Cat
 const categoryKey = s => s.normalize('NFC').trim().toLocaleLowerCase('es-ES').replace(/\s+/g, ' ');
 const positiveId = (n) => Number.isSafeInteger(n) && n > 0;
 class WoWAuditError extends Error {}
-export function lootErrorMessage(error) {
+export function raiderErrorMessage(error) {
   return error instanceof WoWAuditError ? error.message : 'WoWAudit: error interno al generar o mostrar el informe.';
 }
 function requireSchema(ok, detail = 'respuesta incompatible') {
   if (!ok) throw new WoWAuditError(`WoWAudit: ${detail}; informe cancelado.`);
 }
 
-export function getLootConfig(env = process.env) {
+export function getRaiderConfig(env = process.env) {
   if (!env.WOWAUDIT_API_KEY?.trim()) return null;
   const days = env.WOWAUDIT_LOOT_WINDOW_DAYS ? Number(env.WOWAUDIT_LOOT_WINDOW_DAYS) : null;
   if (days !== null && (!Number.isInteger(days) || days < 1 || days > 3660)) throw new WoWAuditError('WOWAUDIT_LOOT_WINDOW_DAYS debe estar entre 1 y 3660.');
@@ -63,7 +63,7 @@ export function buildLootRanking(roster, history, links, { start, end, categorie
   }
   const rows = new Map([...characters.values()].filter(c => c.status === 'tracking' && ranks.some(rank => categoryKey(rank) === categoryKey(c.rank))).map(c => {
     const matches = links.filter(l => identity(l.character_name, l.realm_slug) === identity(c.name, c.realm));
-    return [c.id, { ...c, count: 0, categoryCounts: Object.fromEntries(categories.map(name => [name, 0])), userId: matches.length === 1 ? matches[0].user_id : null }];
+    return [c.id, { ...c, count: 0, categoryCounts: Object.fromEntries(categories.map(name => [name, 0])), userId: matches.length === 1 ? matches[0].user_id : null, channelId: matches.length === 1 ? matches[0].raider_channel_id || null : null }];
   }));
   requireSchema(rows.size > 0, 'no hay personajes con los rangos configurados y status tracking en el roster; revisa WOWAUDIT_LOOT_RANKS');
   const ids = new Map(), imports = new Map();
@@ -100,40 +100,6 @@ export function buildLootRanking(roster, history, links, { start, end, categorie
     return { ...r, position };
   });
   return { all, size: rows.size, total: all.reduce((n,r)=>n+r.count,0), outsideRoster };
-
-}
-
-export async function fetchLootReport(config, links, end = Date.now(), fetcher = fetch) {
-  const period = await auditGet('/v1/period', config.apiKey, fetcher);
-  const season = period?.current_season;
-  // Legacy Swagger exposes keystone_season_id; the live API omits it and uses id.
-  // Live contract verified: current_season.id=18 -> /v1/loot_history/18 returns history_items.
-  const seasonId = season?.keystone_season_id ?? season?.id;
-  requireSchema(positiveId(seasonId) && typeof season.start_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(season.start_date), '/v1/period sin identificador de temporada o fecha de inicio válida');
-  // WoWAudit provides a date without a timezone; use explicit UTC midnight.
-  const seasonStart = Date.parse(`${season.start_date}T00:00:00Z`);
-  requireSchema(Number.isFinite(seasonStart) && seasonStart < end);
-  const start = Math.max(seasonStart, config.days ? end - config.days * 86400000 : seasonStart);
-  const roster = await auditGet('/v1/characters', config.apiKey, fetcher);
-  const loot = await auditGet(`/v1/loot_history/${seasonId}`, config.apiKey, fetcher);
-  const ranking = buildLootRanking(roster, loot?.history_items, links, { start, end, categories: config.categories, ranks: config.ranks });
-  const safe = s => s.replace(/[\\*_`~|<>@]/g, '').replace(/[\r\n]/g,' ').slice(0,30);
-  const summary = [
-    `Temporada WoWAudit ${seasonId}; [${new Date(start).toISOString()}, ${new Date(end).toISOString()}) UTC.`,
-    `Roster en seguimiento: ${(config.ranks || DEFAULT_LOOT_RANKS).map(safe).join(', ')} · ${ranking.size} personajes · **${ranking.total} objetos**.`,
-    `Mythic · categorías: ${config.categories.map(safe).join(', ')}.`
-  ].join('\n');
-  const list = ranking.all.map((row, index) =>
-    `${index + 1}. **${safe(row.name)}** · ${safe(row.realm)}${row.userId ? ` (<@${row.userId}>)` : ''} — **${row.count}**`
-  ).join('\n');
-  const description = `${summary}\n\n${list}`;
-  const embed = {
-    title: 'Loot Mythic — roster completo', color: 0x38b66b, description,
-    footer: { text: `Orden: loot recibido descendente; empates por nombre/reino. Por personaje, sin agrupar alts. Fuera del roster: ${ranking.outsideRoster}. Solo loot registrado y no descartado; cero no acredita cobertura completa.` }
-  };
-  const length = embed.title.length + description.length + embed.footer.text.length;
-  requireSchema(description.length <= 4096 && length <= 6000, 'el roster completo supera el límite de un mensaje Discord');
-  return { embeds: [embed], allowedMentions: { parse: [] } };
 
 }
 
@@ -176,7 +142,6 @@ export async function fetchRaiderTableReport(config, links, end = Date.now(), fe
   const seasonStart = Date.parse(`${season.start_date}T00:00:00Z`);
   requireSchema(Number.isFinite(seasonStart) && seasonStart < end);
   const start = Math.max(seasonStart, config.days ? end - config.days * 86400000 : seasonStart);
-  const startDate = new Date(start).toISOString().slice(0, 10);
   const historicalPath = `/v1/historical_data?period=${encodeURIComponent(period.current_period)}`;
   const [roster, weekly, loot] = await Promise.all([
     auditGet('/v1/characters', config.apiKey, fetcher),
@@ -202,63 +167,20 @@ export async function fetchRaiderTableReport(config, links, end = Date.now(), fe
     return [character.id, Number.isFinite(profile?.currentItemLevel) && profile.currentItemLevel > 0 ? profile.currentItemLevel : null];
   });
   const gearById = new Map(details);
-  const name = value => String(value).replace(/[|`\r\n]/g, ' ').trim().slice(0, 12);
-  const rows = selected.map(character => {
-    const data = weeklyById.get(character.id);
-    const vault = data?.vault_options;
-    const profile = gearById.get(character.id);
-    return {
-      character,
-      gear: profile ?? null,
-      keys: data ? formatKeyVault(data.dungeons_done) : '—/—/—',
-      raidVault: data ? formatRaidVault(vault?.raids) : '-/-/-',
-      loot: character.count,
-      safeName: name(character.name)
-    };
-  }).sort((a, b) => (b.gear ?? -1) - (a.gear ?? -1) || identity(a.character.name, a.character.realm).localeCompare(identity(b.character.name, b.character.realm), 'en'));
-
-  const number = value => value === null ? '—' : Number.isInteger(value) ? String(value) : value.toFixed(1);
-  const nameWidth = Math.max(4, ...rows.map(row => row.safeName.length));
-  const widths = {
-    keys: Math.max(4, ...rows.map(row => row.keys.length)),
-    raid: Math.max(4, ...rows.map(row => row.raidVault.length)),
-    loot: Math.max(4, ...rows.map(row => String(row.loot).length))
+  return {
+    date: new Date(end).toISOString().slice(0, 10), period: period.current_period,
+    ranks: config.ranks, categories: config.categories, total: ranking.total,
+    rows: selected.map(character => {
+      const data = weeklyById.get(character.id);
+      return {
+        id: character.id, name: character.name, realm: character.realm,
+        channelId: character.channelId, loot: character.count,
+        ilvl: gearById.get(character.id) ?? null,
+        keys: data ? formatKeyVault(data.dungeons_done) : '—/—/—',
+        raid: data ? formatRaidVault(data.vault_options?.raids) : '-/-/-'
+      };
+    })
   };
-  const columns = [
-    '#', 'Nombre'.padEnd(nameWidth), 'Loot'.padStart(widths.loot), 'Keys'.padEnd(widths.keys),
-    'Raid'.padEnd(widths.raid), 'iLvl'.padStart(5)
-  ];
-  const header = `${columns[0].padStart(2)} ${columns.slice(1).join(' ')}`;
-  const body = rows.map((row, index) => [
-    String(index + 1).padStart(2), row.safeName.padEnd(nameWidth), String(row.loot).padStart(widths.loot),
-    row.keys.padEnd(widths.keys), row.raidVault.padEnd(widths.raid), number(row.gear).padStart(5)
-  ].join(' ')).join('\n');
-  const divider = '─'.repeat(header.length);
-  const rosterSummary = `Roster en seguimiento: ${config.ranks.join(', ')} · ${ranking.size} personajes · **${ranking.total} objetos**.`;
-  const filtersSummary = `Mythic · categorías: ${config.categories.join(', ')}.`;
-  const content = [
-    `**Raiders · ${new Date(end).toISOString().slice(0, 10)} · p${period.current_period}**`,
-    rosterSummary,
-    filtersSummary,
-    `Loot total · Keys/Raid vault · iLvl actual.`,
-    `\`\`\`text\n${header}\n${divider}\n${body}\n\`\`\``,
-    `Período de loot: desde ${startDate} · alts por separado · — = sin datos.`
-  ].join('\n');
-  let messageContent = content;
-  if (messageContent.length > 2000) {
-    const compactHeader = `# ${'Nombre'.padEnd(nameWidth)} Loot Keys Raid iLvl`;
-    const compactBody = rows.map((row, index) => `${String(index + 1).padStart(2)} ${row.safeName.padEnd(nameWidth)} ${row.loot} ${row.keys} ${row.raidVault} ${number(row.gear)}`).join('\n');
-    messageContent = [
-      `**Raiders · ${new Date(end).toISOString().slice(0, 10)} · p${period.current_period}**`,
-      rosterSummary,
-      filtersSummary,
-      `Loot total · Keys/Raid vault · iLvl actual.`,
-      `\`\`\`text\n${compactHeader}\n${compactBody}\n\`\`\``,
-      `Período desde ${startDate} · alts separados · — = sin datos.`
-    ].join('\n');
-  }
-  requireSchema(messageContent.length <= 2000, 'la tabla completa supera el límite de 2000 caracteres de un mensaje Discord');
-  return { content: messageContent, allowedMentions: { parse: [] } };
 }
 
 export function weeklySlot(now = Date.now()) {

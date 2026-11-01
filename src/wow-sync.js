@@ -1,3 +1,5 @@
+import { getRaiderPromotion } from './raider-promotion.js';
+
 const region = (process.env.WOW_REGION || '').trim().toLowerCase();
 const locale = (process.env.WOW_LOCALE || '').trim();
 const clientId = process.env.BLIZZARD_CLIENT_ID;
@@ -186,6 +188,7 @@ async function updateRaiderChannelName(guild, link, member, config, report, char
     } else if (!result) {
       report.channelFailures.push(`${characterName}: no se encontró un canal Raider vinculado`);
     }
+    return result?.channel || null;
   } catch (error) {
     report.channelFailures.push(`${getRaiderChannelName(prefix, characterName, realmSlug)}: ${error.message}`);
   }
@@ -240,13 +243,13 @@ function getManagedRoleSets(config) {
   return { rankIds, professionIds, managedIds: new Set([...rankIds, ...professionIds]) };
 }
 
-export async function synchronizeWowRoles(guild, linkedMembers, { saveLink, onRoleChange } = {}) {
+export async function synchronizeWowRoles(guild, linkedMembers, { saveLink, onRoleChange, onRaiderSync } = {}) {
   const config = getWowConfig();
   const roster = await fetchGuildRoster();
   const { rankIds: rankRoleIds, professionIds: professionRoleIds, managedIds } = getManagedRoleSets(config);
   const botMember = await guild.members.fetchMe();
   validateManagedRoles(guild, botMember, managedIds);
-  const report = { synced: 0, ranksChecked: 0, defaultRankApplied: 0, outsideRoster: 0, outsideRosterDefaultApplied: 0, rankDetails: [], channelChanges: [], channelsRenamed: 0, channelDetails: [], channelFailures: [], professionsChecked: 0, skipped: [], failed: [], roleChanges: [] };
+  const report = { synced: 0, ranksChecked: 0, defaultRankApplied: 0, outsideRoster: 0, outsideRosterDefaultApplied: 0, rankDetails: [], channelChanges: [], channelsRenamed: 0, channelDetails: [], channelFailures: [], professionsChecked: 0, promotionMessages: [], skipped: [], failed: [], roleChanges: [] };
 
   const roleChange = (link, characterName, realmSlug) => (roleId, action) => {
     const role = guild.roles.cache.get(roleId);
@@ -315,8 +318,11 @@ export async function synchronizeWowRoles(guild, linkedMembers, { saveLink, onRo
     const rankKey = String(rosterEntry.rank);
     const configuredRankRoleId = config.rankRoles[rankKey];
     const rankRoleId = configuredRankRoleId || config.defaultRankRoleId;
+    const promotion = getRaiderPromotion(guild, member, rankRoleId, config.rankRoles);
+    let rankUpdated = false;
     try {
       const changes = await reconcileRoles(member, new Set([rankRoleId]), rankRoleIds, botMember, roleChange(link, character.name, character.realm.slug));
+      rankUpdated = true;
       report.ranksChecked += 1;
       if (changes.changed) {
         const roleName = guild.roles.cache.get(rankRoleId)?.name || rankRoleId;
@@ -328,8 +334,18 @@ export async function synchronizeWowRoles(guild, linkedMembers, { saveLink, onRo
     }
 
     const channelChangesBefore = report.channelsRenamed;
-    await updateRaiderChannelName(guild, link, member, config, report, character.name, character.realm.slug, saveLink);
+    const raiderChannel = await updateRaiderChannelName(guild, link, member, config, report, character.name, character.realm.slug, saveLink);
     if (report.channelsRenamed > channelChangesBefore) report.channelChanges.push(report.channelDetails.at(-1));
+
+    if (rankUpdated && promotion.targetIsRaider && onRaiderSync) {
+      try {
+        const sent = await onRaiderSync({ guild, link: { ...link, character_name: character.name, realm_slug: character.realm.slug }, channel: raiderChannel, promoted: promotion.promoted });
+        if (sent) report.promotionMessages.push(character.name);
+      } catch (error) {
+        report.failed.push(`${character.name}: ${error.message}`);
+        console.error(`Aviso de ascenso Raider para ${character.name}:`, error.message, error.cause?.code || '');
+      }
+    }
 
     try {
       const professions = await fetchCharacterProfessions(character.name, character.realm.slug, config.region);

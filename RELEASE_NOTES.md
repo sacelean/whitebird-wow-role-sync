@@ -1,5 +1,13 @@
 # Release notes — Whitebird WoW Role Sync
 
+## 2026-11-01 · Informe de raiders y felicitaciones de ascenso
+
+- El informe de raiders sustituye al informe separado de loot e incluye una columna con el enlace al canal Raider de cada personaje vinculado.
+- Nuevo selector para ordenar por loot, iLvl o nombre, en sentido ascendente o descendente. Los oficiales pueden cambiar el orden del mensaje compartido; se conserva tras reinicios y futuras actualizaciones.
+- Se mantiene el mensaje y el destino de raiders y se retiran las tablas antiguas del informe de loot. Los mensajes de loot ya publicados se pueden borrar manualmente.
+
+- Nueva felicitación en el canal personal cuando el bot sincroniza el ascenso de Recluta a Raider: recuerda la asistencia por defecto en WoWAudit y las reparaciones de guild cuando se activen. El aviso se guarda para evitar duplicados.
+
 ## 2026-10-25 · Actualización de seguridad
 
 ### Cambios

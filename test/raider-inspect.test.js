@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PermissionFlagsBits as P } from 'discord.js';
-import { inspectPermissions } from '../src/loot-inspect.js';
+import { inspectPermissions } from '../src/raider-inspect.js';
 const all=P.ViewChannel|P.SendMessages|P.EmbedLinks|P.ReadMessageHistory;
 const roles=[{id:'g',permissions:String(all)},{id:'r',permissions:'0'}];
 const member={roles:['r']};

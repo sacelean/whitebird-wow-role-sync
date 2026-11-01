@@ -1,9 +1,10 @@
+import { notifyRaiderPromotion } from './raider-promotion.js';
 import 'dotenv/config';
-import { updateLootPanel } from './loot-panel.js';
-import { startLootScheduler } from './loot-scheduler.js';
+import { publishRaiderReport, sortRaiderReport } from './raider-report.js';
+import { startRaiderScheduler } from './raider-scheduler.js';
 import { startGearReminderScheduler } from './gear-reminders.js';
 import { publishLatestReleaseNote } from './release-notes.js';
-import { getLootConfig, fetchRaiderTableReport, lootErrorMessage } from './wowaudit.js';
+import { getRaiderConfig, fetchRaiderTableReport, raiderErrorMessage } from './wowaudit.js';
 import { auditGet } from './wowaudit.js';
 import { BisListError, buildBisList, buildMethodBisList, fetchBlingClasses, formatBisProposal } from './bis-lists.js';
 import { randomUUID } from 'node:crypto';
@@ -22,9 +23,9 @@ import {
   TextInputStyle
 } from 'discord.js';
 import {
-  raiderPanelStore,
+  raiderPromotionStore,
   acceptBisProposal,
-  getLootDestination,
+  getRaiderDestination,
   getBisProposal,
   createBisProposal,
   markBisProposalAwaitingSource,
@@ -34,7 +35,7 @@ import {
   saveBisProposalList,
   setBisProposalMessage,
   updateBisListItem,
-  setLootDestination,
+  setRaiderDestination,
   getCauldronAssignments,
   getCauldronPanel,
   getWowLinks,
@@ -449,7 +450,8 @@ async function runSync(guild, selectedLinks = null) {
   if (!linked.length) return { synced: 0, skipped: [] };
   return synchronizeWowRoles(guild, linked, {
     saveLink: saveWowLink,
-    onRoleChange: (change) => recordWowSyncChanges([change])
+    onRoleChange: (change) => recordWowSyncChanges([change]),
+    onRaiderSync: event => notifyRaiderPromotion(event, raiderPromotionStore)
   });
 }
 
@@ -534,6 +536,7 @@ function formatSyncReport(report, title = 'Sincronización terminada') {
   ];
   const details = [
     ...(report.roleChanges || []).slice(0, 6).map((change) => `• ${change.characterName}: ${change.action === 'added' ? 'añadido' : 'retirado'} ${change.roleName} (${change.category})`),
+    ...(report.promotionMessages || []).slice(0, 3).map(name => `• Felicitación de ascenso enviada a ${name}.`),
     ...(report.channelChanges || []).slice(0, 3).map((change) => `• Canal: ${change}`),
     ...(report.skipped || []).slice(0, 4).map((item) => `• Omitido: ${item}`),
     ...(report.failed || []).slice(0, 4).map((item) => `• Error: ${item}`),
@@ -732,12 +735,24 @@ client.once(Events.ClientReady, (readyClient) => {
   if (!Number.isInteger(hour) || hour < 0 || hour > 23) throw new Error('WOW_SYNC_HOUR debe ser un número entre 0 y 23.');
   scheduleDailySync(readyClient, hour, timeZone);
   scheduleDailyCauldronReminders(readyClient, timeZone);
-  startLootScheduler(readyClient, guildId);
+  startRaiderScheduler(readyClient, guildId);
   startGearReminderScheduler(readyClient, guildId, getWowLinks);
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
+    if (interaction.isStringSelectMenu() && interaction.customId === 'wow-raiders-sort') {
+      if (interaction.guildId !== guildId) return;
+      if (!isOfficer(interaction)) return interaction.reply(unauthorizedReply());
+      await interaction.deferUpdate();
+      try {
+        await sortRaiderReport(interaction.guild, interaction.channelId, interaction.message.id, interaction.values[0]);
+      } catch (error) {
+        console.error('Orden del informe de raiders:', error.message);
+        await interaction.followUp({ content: error.message, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
+      }
+      return;
+    }
     const isLinkComponent = (interaction.isStringSelectMenu() && interaction.customId.startsWith('wow-link-choose:')) ||
       (interaction.isButton() && interaction.customId.startsWith('wow-link-'));
     if (isLinkComponent) return await handleLinkComponent(interaction);
@@ -752,7 +767,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       let proposalId = null;
       try {
-        const config = getLootConfig();
+        const config = getRaiderConfig();
         if (!config) return interaction.editReply('WoWAudit está desactivado. Configura `WOWAUDIT_API_KEY` para identificar la clase del personaje.');
         const target = interaction.options.getUser('raider', true);
         const activity = interaction.options.getString('actividad', true);
@@ -810,17 +825,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (!isOfficer(interaction)) return interaction.reply(unauthorizedReply());
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       try {
-        const config = getLootConfig();
+        const config = getRaiderConfig();
         if (!config) return interaction.editReply('WoWAudit está desactivado. Configura WOWAUDIT_API_KEY en el servidor.');
         const selectedChannel = interaction.options.getChannel('canal');
-        const channelId = selectedChannel?.id || getLootDestination(guildId);
-        if (!channelId) return interaction.editReply('Elige el destino con `/informe-raiders canal:#tu-canal`. Se guardará para los informes semanales.');
+        const channelId = selectedChannel?.id || getRaiderDestination(guildId);
+        if (!channelId) return interaction.editReply('Elige el destino con `/informe-raiders canal:#tu-canal`. Se guardará para el informe semanal.');
         const report = await fetchRaiderTableReport(config, getWowLinks(guildId), Date.now());
-        const panel = await updateLootPanel(interaction.guild, { ...config, channelId }, report, raiderPanelStore, null, 'resumen de raiders');
-        setLootDestination(guildId, panel.channelId);
+        const panel = await publishRaiderReport(interaction.guild, channelId, report);
+        setRaiderDestination(guildId, panel.channelId);
         return interaction.editReply({ content: `Resumen de raiders actualizado: https://discord.com/channels/${guildId}/${panel.channelId}/${panel.messageId}`, allowedMentions: { parse: [] } });
       } catch (error) {
-        const detail = error?.name === 'LootPanelError' ? error.message : lootErrorMessage(error);
+        const detail = error?.name === 'RaiderPanelError' ? error.message : raiderErrorMessage(error);
         console.error('Resumen de raiders:', detail);
         return interaction.editReply({ content: `No se pudo preparar o actualizar el resumen de raiders. ${detail}`, allowedMentions: { parse: [] } });
       }

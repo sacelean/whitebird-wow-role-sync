@@ -3,7 +3,7 @@ import Database from 'better-sqlite3';
 import { REST, Routes, PermissionFlagsBits } from 'discord.js';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { logLootFailure } from './loot-diagnostics.js';
+import { logRaiderFailure } from './raider-diagnostics.js';
 
 export function inspectPermissions(guildId, botId, roles, member, channel) {
   const memberRoles = new Set(member.roles);
@@ -33,7 +33,7 @@ async function inspect() {
   let db;
   try {
     db=new Database(resolve(process.env.DATABASE_PATH || './data/whitebird-wow-roles.sqlite'),{readonly:true,fileMustExist:true});
-    const panels=db.prepare('SELECT channel_id, message_id, status, last_slot FROM wowaudit_loot_panels WHERE guild_id=?').all(guildId);
+    const panels=db.prepare('SELECT channel_id, message_id, status, last_slot FROM wowaudit_raider_panels WHERE guild_id=?').all(guildId);
     console.log(JSON.stringify({panels},null,2));
     if (!panels.length) { console.log('No hay paneles registrados para este servidor.');return; }
     const rest=new REST({version:'10'}).setToken(process.env.DISCORD_TOKEN);
@@ -48,9 +48,9 @@ async function inspect() {
           const message=await rest.get(Routes.channelMessage(panel.channel_id,panel.message_id));
           console.log(JSON.stringify({channelId:panel.channel_id,messageId:message.id,ownedByBot:message.author.id===bot.id}));
         }
-      } catch(error) { logLootFailure('inspect-channel-readonly',error,{guildId,channelId:panel.channel_id,messageId:panel.message_id}); }
+      } catch(error) { logRaiderFailure('inspect-channel-readonly',error,{guildId,channelId:panel.channel_id,messageId:panel.message_id}); }
     }
-  } catch(error) { logLootFailure('inspect-readonly',error,{guildId});process.exitCode=1; }
+  } catch(error) { logRaiderFailure('inspect-readonly',error,{guildId});process.exitCode=1; }
   finally { db?.close(); }
 }
 if(process.argv[1] && import.meta.url===pathToFileURL(resolve(process.argv[1])).href) await inspect();

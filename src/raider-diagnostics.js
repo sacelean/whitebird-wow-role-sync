@@ -15,8 +15,8 @@ function validationPaths(errors, path = [], result = []) {
 }
 
 // Never log request bodies, response messages, URLs, credentials or arbitrary exception text.
-export function logLootFailure(operation, error, context = {}, logger = console.error) {
-  const name = typeof error?.name === 'string' && /^(DiscordAPIError(?:\[\d+\])?|HTTPError|AbortError|TimeoutError|TypeError|RangeError|Error|LootPanelError|SqliteError)$/.test(error.name) ? error.name : 'Error';
+export function logRaiderFailure(operation, error, context = {}, logger = console.error) {
+  const name = typeof error?.name === 'string' && /^(DiscordAPIError(?:\[\d+\])?|HTTPError|AbortError|TimeoutError|TypeError|RangeError|Error|RaiderPanelError|SqliteError)$/.test(error.name) ? error.name : 'Error';
   const status = Number.isInteger(error?.status) ? error.status : null;
   const diagnostic = {
     operation,

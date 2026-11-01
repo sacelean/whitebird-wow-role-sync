@@ -336,3 +336,53 @@ test('el horario diario respeta Europe/Madrid y calcula el siguiente día si ya 
   assert.equal(nextDailyRun(4, 'Europe/Madrid', beforeRun), Date.parse('2026-10-12T02:00:00.000Z'));
   assert.equal(nextDailyRun(4, 'Europe/Madrid', afterRun), Date.parse('2026-10-13T02:00:00.000Z'));
 });
+
+test('el ascenso Recluta → Raider se detecta antes del cambio y entrega el canal resuelto', async (t) => {
+  mockBlizzard(t, { roster: rosterWith('Asherrna', 2) });
+  const { guild, roles } = makeGuild([roleIds.rank0]);
+  roles.get(roleIds.rank0).name = 'Recluta';
+  const channel = { id: 'raider-channel', type: 0, name: 'raider-asherrna-sanguino' };
+  guild.channels.cache.set(channel.id, channel);
+  const events = [];
+  const options = { onRaiderSync: async event => { events.push(event); return event.promoted; } };
+  const report = await synchronizeWowRoles(guild, [{ ...linked, raider_channel_id: channel.id }], options);
+  assert.equal(events[0].promoted, true);
+  assert.equal(events[0].channel, channel);
+  assert.deepEqual(report.promotionMessages, ['Asherrna']);
+  await synchronizeWowRoles(guild, [{ ...linked, raider_channel_id: channel.id }], options);
+  assert.equal(events[1].promoted, false);
+});
+
+test('no considera ascenso a un Raider ya existente, una primera vinculación ni un cambio desde otro rango', async (t) => {
+  mockBlizzard(t, { roster: rosterWith('Asherrna', 2) });
+  for (const initial of [[roleIds.rank2], [], [roleIds.rank0]]) {
+    const { guild } = makeGuild(initial);
+    const events = [];
+    await synchronizeWowRoles(guild, [linked], { onRaiderSync: async event => { events.push(event); } });
+    assert.equal(events.length, 1);
+    assert.equal(events[0].promoted, false);
+  }
+});
+
+test('no felicita si falla la actualización del rango ni cuando el personaje sale del roster', async (t) => {
+  mockBlizzard(t, { roster: rosterWith('Asherrna', 2) });
+  const { guild, member, roles } = makeGuild([roleIds.rank0]);
+  roles.get(roleIds.rank0).name = 'Recluta';
+  member.roles.add = async () => { throw new Error('Missing Permissions'); };
+  let calls = 0;
+  await synchronizeWowRoles(guild, [linked], { onRaiderSync: async () => { calls++; } });
+  assert.equal(calls, 0);
+  mockBlizzard(t, { roster: { members: [] } });
+  await synchronizeWowRoles(guild, [linked], { onRaiderSync: async () => { calls++; } });
+  assert.equal(calls, 0);
+});
+
+test('un fallo del aviso de ascenso no detiene las profesiones ni la sincronización', async (t) => {
+  mockBlizzard(t, { roster: rosterWith('Asherrna', 2) });
+  const { guild, roles } = makeGuild([roleIds.rank0]);
+  roles.get(roleIds.rank0).name = 'Recluta';
+  const report = await synchronizeWowRoles(guild, [linked], { onRaiderSync: async () => { throw new Error('Aviso pendiente'); } });
+  assert.equal(report.synced, 1);
+  assert.equal(report.professionsChecked, 1);
+  assert.ok(report.failed.some(message => message.includes('Aviso pendiente')));
+});

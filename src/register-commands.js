@@ -10,7 +10,7 @@ const commands = [
   new SlashCommandBuilder()
     .setName('informe-raiders')
     .setDescription('Publica o actualiza la tabla semanal de raiders (oficiales)')
-    .addChannelOption(option => option.setName('canal').setDescription('Destino compartido con el informe semanal de loot').addChannelTypes(ChannelType.GuildText).setRequired(false)),
+    .addChannelOption(option => option.setName('canal').setDescription('Canal del informe de raiders').addChannelTypes(ChannelType.GuildText).setRequired(false)),
   new SlashCommandBuilder()
     .setName('bis-proponer')
     .setDescription('Propone al raider una lista BIS para que la acepte o rechace (oficiales)')

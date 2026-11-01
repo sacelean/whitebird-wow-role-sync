@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { auditGet, buildLootRanking, fetchLootReport, fetchRaiderTableReport, getLootConfig, lootErrorMessage, weeklySlot, weeklyCutoff } from '../src/wowaudit.js';
+import { auditGet, buildLootRanking, fetchRaiderTableReport, getRaiderConfig, raiderErrorMessage, weeklySlot, weeklyCutoff } from '../src/wowaudit.js';
 const fixture = JSON.parse(readFileSync(new URL('./fixtures/wowaudit.json',import.meta.url)));
 const roster = fixture['/v1/characters'];
 const history = fixture['/v1/loot_history/{id}'].history_items;
@@ -34,21 +34,9 @@ test('Madrid Wednesday at 20:00 across DST, not host timezone',()=>{
  for(const time of ['2026-07-01T17:59Z','2026-10-28T18:59Z','2026-10-29T19:00Z']) assert.equal(weeklySlot(Date.parse(time)),null);
 });
 test('optional config validates before requests',()=>{
- assert.equal(getLootConfig({}),null);
- assert.equal(getLootConfig({WOWAUDIT_API_KEY:'  '}),null);
- assert.throws(()=>getLootConfig({WOWAUDIT_API_KEY:'secret',WOWAUDIT_LOOT_WINDOW_DAYS:'0'}));
-});
-test('verified paths, keystone season, Bearer header and window',async()=>{
- const calls=[];
- const fetcher=async(url,opts)=>{
-  calls.push(url); assert.equal(opts.headers.Authorization,'Bearer private');
-  const p = new URL(url).pathname;
-  const data = p==='/v1/loot_history/11'?fixture['/v1/loot_history/{id}']:fixture[p];
-  return {ok:true,json:async()=>data};
- };
- const content=await fetchLootReport({apiKey:'private',days:1,categories:['Major','Minor'],ranks:['Main']},[],options.end,fetcher);
- assert.deepEqual(calls.map(u=>new URL(u).pathname),['/v1/period','/v1/characters','/v1/loot_history/11']);
- assert.match(JSON.stringify(content),/Kormash/); assert.match(JSON.stringify(content),/2024-10-01T00:00:00.000Z/); assert.doesNotMatch(JSON.stringify(content),/private/);
+ assert.equal(getRaiderConfig({}),null);
+ assert.equal(getRaiderConfig({WOWAUDIT_API_KEY:'  '}),null);
+ assert.throws(()=>getRaiderConfig({WOWAUDIT_API_KEY:'secret',WOWAUDIT_LOOT_WINDOW_DAYS:'0'}));
 });
 test('HTTP authorization errors never leak body or key',async()=>{
  await assert.rejects(auditGet('/v1/period','secret',async()=>({ok:false,status:401})),/^Error: WoWAudit: HTTP 401\.$/);
@@ -74,30 +62,11 @@ test('only Mythic Main and the four selected categories, keeping zero-loot mains
 });
 
 test('preview diagnostics expose only controlled errors, never arbitrary exception contents',()=>{
- assert.equal(lootErrorMessage(new Error('secret-token')),'WoWAudit: error interno al generar o mostrar el informe.');
- try { getLootConfig({WOWAUDIT_API_KEY:'secret-token',WOWAUDIT_LOOT_WINDOW_DAYS:'0'}); } catch(error) {
-  assert.match(lootErrorMessage(error),/WOWAUDIT_LOOT_WINDOW_DAYS/);
-  assert.doesNotMatch(lootErrorMessage(error),/secret-token/);
+ assert.equal(raiderErrorMessage(new Error('secret-token')),'WoWAudit: error interno al generar o mostrar el informe.');
+ try { getRaiderConfig({WOWAUDIT_API_KEY:'secret-token',WOWAUDIT_LOOT_WINDOW_DAYS:'0'}); } catch(error) {
+  assert.match(raiderErrorMessage(error),/WOWAUDIT_LOOT_WINDOW_DAYS/);
+  assert.doesNotMatch(raiderErrorMessage(error),/secret-token/);
  }
-});
-
-test('live period without keystone ID uses verified WoWAudit season id 18',async()=>{
- const livePeriod=JSON.parse(readFileSync(new URL('./fixtures/wowaudit-period-live.json',import.meta.url)));
- const paths=[];
- const content=await fetchLootReport({apiKey:'private',categories:['Major','Minor'],ranks:['Main']},[],Date.parse('2026-10-13T18:00Z'),async(url)=>{
-  const path=new URL(url).pathname; paths.push(path);
-  const data=path==='/v1/period'?livePeriod:path==='/v1/characters'?roster:{history_items:[]};
-  return {ok:true,json:async()=>data};
- });
- assert.deepEqual(paths,['/v1/period','/v1/characters','/v1/loot_history/18']);
- assert.match(JSON.stringify(content),/Temporada WoWAudit 18/); assert.match(JSON.stringify(content),/2026-08-11T00:00:00.000Z/);
-});
-test('invalid legacy season identifier is rejected rather than falling back silently',async()=>{
- let calls=0;
- await assert.rejects(fetchLootReport({apiKey:'private'},[],Date.parse('2026-10-13T18:00Z'),async()=>{
-  calls++; return {ok:true,json:async()=>({current_season:{id:18,keystone_season_id:'invalid',start_date:'2026-08-11'}})};
- }),/identificador de temporada/);
- assert.equal(calls,1);
 });
 
 test('real Whitebird rank distribution includes all 30 tracked characters including trials',()=>{
@@ -115,8 +84,8 @@ test('real Whitebird rank distribution includes all 30 tracked characters includ
 });
 test('rank configuration defaults to the verified ranks and rejects empty entries',()=>{
  const env={WOWAUDIT_API_KEY:'test'};
- assert.deepEqual(getLootConfig(env).ranks,['Oficiales','Fijo','Rotativo','Trial']);
- assert.throws(()=>getLootConfig({...env,WOWAUDIT_LOOT_RANKS:'Fijo,'}),/WOWAUDIT_LOOT_RANKS/);
+ assert.deepEqual(getRaiderConfig(env).ranks,['Oficiales','Fijo','Rotativo','Trial']);
+ assert.throws(()=>getRaiderConfig({...env,WOWAUDIT_LOOT_RANKS:'Fijo,'}),/WOWAUDIT_LOOT_RANKS/);
 });
 
 test('merged categories count their final label exactly once, matching the website',()=>{
@@ -137,44 +106,50 @@ test('conflicting duplicate category mappings cancel the report',()=>{
  assert.throws(()=>buildLootRanking(roster,[original,{...original,response_type:{name:'Necesidad',propagated_to:{name:'OFF SPEC'}}}],[],options));
 });
 
-test('loot report renders all 23 rows within Discord embed limits and without mentions',async()=>{
- const reportRoster=Array.from({length:23},(_,i)=>({...roster[0],id:i+1,name:`Character${i}`,rank:'Fijo'}));
- const period=JSON.parse(readFileSync(new URL('./fixtures/wowaudit-period-live.json',import.meta.url)));
- const report=await fetchLootReport({apiKey:'test',categories:['BIS']},[],Date.parse('2026-10-13T18:00Z'),async(url)=>({ok:true,json:async()=>url.endsWith('/period')?period:url.endsWith('/characters')?reportRoster:{history_items:[]}}));
- const text=report.embeds[0].description;
- assert.equal(text.split('\n').filter(line=>/^\d+\. \*\*Character/.test(line)).length,23);
- assert.ok(text.length<=4096);
- assert.deepEqual(report.allowedMentions,{parse:[]});
+test('API configuration has no destination; only the command stores a channel',()=>{
+ const config=getRaiderConfig({WOWAUDIT_API_KEY:'test'});
+ assert.equal(config.apiKey,'test');
+ assert.equal(Object.hasOwn(config,'channelId'),false);
+ assert.equal(Object.hasOwn(config,'channelName'),false);
 });
-test('raider table stays readable for 23 and fits Discord content limits up to 30 rows',async()=>{
+
+async function reportFixture(size = 30, links = [], legacy = false) {
  const period=JSON.parse(readFileSync(new URL('./fixtures/wowaudit-period-live.json',import.meta.url)));
- for (const size of [23,30]) {
-  const reportRoster=Array.from({length:size},(_,i)=>({...roster[0],id:i+1,name:`Raider${String(i).padStart(6,'0')}`,rank:'Fijo'}));
-  const report=await fetchRaiderTableReport({apiKey:'test',days:30,categories:['BIS','Mejora de stats','set 4p','Catalizar'],ranks:['Fijo']},[],Date.parse('2026-10-13T18:00Z'),async(url)=>{
-   const path=new URL(url).pathname;
-   const data=path==='/v1/period'?{...period,current_period:1090}:path==='/v1/characters'?reportRoster:
+ const reportRoster=Array.from({length:size},(_,i)=>({...roster[0],id:i+1,name:`Raider${String(i).padStart(6,'0')}`,rank:'Fijo'}));
+ const paths=[];
+ const snapshot=await fetchRaiderTableReport({apiKey:'private',days:30,categories:['BIS','Mejora de stats','set 4p','Catalizar'],ranks:['Fijo']},links,Date.parse('2026-10-13T18:00Z'),async(url,opts)=>{
+   assert.equal(opts.headers.Authorization,'Bearer private');
+   const path=new URL(url).pathname; paths.push(path);
+   const data=path==='/v1/period'?{...period,current_period:1090,current_season:{...period.current_season,...(legacy?{keystone_season_id:18}:{})}}:path==='/v1/characters'?reportRoster:
     path==='/v1/historical_data'?{characters:reportRoster.map(c=>({id:c.id,data:{dungeons_done:[{level:18}],vault_options:{raids:{option_1:17,option_2:null,option_3:null}}}}))}:
     path==='/v1/loot_history/18'?{history_items:[]}:
     {id:Number(path.split('/').at(-1)),details:{currentItemLevel:329.94}};
    return {ok:true,json:async()=>data};
-  });
-  assert.equal(typeof report.content,'string');
-  assert.equal(Object.hasOwn(report,'embeds'),false);
-  assert.ok(report.content.length<=2000,`message content was ${report.content.length} characters for ${size} rows`);
-  assert.equal(report.content.split('\n').filter(line=>/^\s*\d+ Raider\d+/.test(line)).length,size);
-  assert.match(report.content,/Nombre\s+Loot\s+Keys\s+Raid\s+iLvl/);
-  assert.match(report.content,/Loot total · Keys\/Raid vault · iLvl actual\./);
-  assert.doesNotMatch(report.content,/Progreso|M1 H2 N0 L0/);
-  assert.doesNotMatch(report.content,/Asist|\/raid/);
-  assert.ok(report.content.includes(`Roster en seguimiento: Fijo · ${size} personajes · **0 objetos**.`));
-  assert.match(report.content,/Mythic · categorías: BIS, Mejora de stats, set 4p, Catalizar\./);
-  if(size===23) assert.match(report.content,/─{20,}/,'23 rows should use the aligned table layout');
-  assert.deepEqual(report.allowedMentions,{parse:[]});
+ });
+ return {snapshot,paths,reportRoster};
+}
+test('raider data uses season fallback and legacy season ID with bounded authenticated profile requests',async()=>{
+ for (const legacy of [false,true]) {
+  const {snapshot,paths}=await reportFixture(30,[],legacy);
+  assert.equal(snapshot.rows.length,30);
+  assert.equal(snapshot.rows[0].keys,'18/0/0');
+  assert.equal(snapshot.rows[0].raid,'17/-/-');
+  assert.equal(snapshot.rows[0].ilvl,329.94);
+  assert.equal(paths.filter(p=>p==='/v1/loot_history/18').length,1);
  }
 });
-test('API configuration has no destination; only the command stores a channel',()=>{
- const config=getLootConfig({WOWAUDIT_API_KEY:'test'});
- assert.equal(config.apiKey,'test');
- assert.equal(Object.hasOwn(config,'channelId'),false);
- assert.equal(Object.hasOwn(config,'channelName'),false);
+test('invalid legacy season ID cancels the raider report before querying the roster',async()=>{
+ let calls=0;
+ await assert.rejects(fetchRaiderTableReport({apiKey:'private'},[],Date.parse('2026-10-13T18:00Z'),async()=>{
+  calls++; return {ok:true,json:async()=>({current_period:1090,current_season:{id:18,keystone_season_id:'invalid',start_date:'2026-08-11'}})};
+ }),/temporada/);
+ assert.equal(calls,1);
+});
+test('channel links require a unique main identity',async()=>{
+ const {reportRoster}=await reportFixture(1);
+ const link={character_name:reportRoster[0].name,realm_slug:reportRoster[0].realm,user_id:'123',raider_channel_id:'123456789012345678'};
+ const unique=await reportFixture(1,[link]);
+ assert.equal(unique.snapshot.rows[0].channelId,link.raider_channel_id);
+ const ambiguous=await reportFixture(1,[link,{...link,user_id:'456'}]);
+ assert.equal(ambiguous.snapshot.rows[0].channelId,null);
 });
