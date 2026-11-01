@@ -1,3 +1,4 @@
+import { combatRole, fetchCombatRoster, findAuditCharacter, resolveCombatRoles } from './combat-roles.js';
 import { getRaiderPromotion } from './raider-promotion.js';
 
 const region = (process.env.WOW_REGION || '').trim().toLowerCase();
@@ -258,8 +259,22 @@ export async function synchronizeWowRoles(guild, linkedMembers, { saveLink, onRo
   const roster = await fetchGuildRoster();
   const { rankIds: rankRoleIds, membershipIds, professionIds: professionRoleIds, managedIds } = getManagedRoleSets(config);
   const botMember = await guild.members.fetchMe();
+  let combatRoster;
+  let combatRoles;
+  let combatError;
+  if (process.env.WOWAUDIT_API_KEY?.trim()) {
+    try {
+      await guild.roles.fetch();
+      combatRoles = resolveCombatRoles(guild);
+      if (Object.values(combatRoles).some(id => managedIds.has(id))) throw new Error('Los roles de combate no pueden coincidir con los roles de rango, roster o profesión.');
+      validateManagedRoles(guild, botMember, new Set(Object.values(combatRoles)));
+      combatRoster = await fetchCombatRoster(process.env.WOWAUDIT_API_KEY.trim());
+    } catch (error) { combatError = error.message; combatRoles = null; }
+  }
   validateManagedRoles(guild, botMember, managedIds);
   const report = { synced: 0, ranksChecked: 0, defaultRankApplied: 0, outsideRoster: 0, outsideRosterDefaultApplied: 0, rankDetails: [], channelChanges: [], channelsRenamed: 0, channelDetails: [], channelFailures: [], professionsChecked: 0, promotionMessages: [], skipped: [], failed: [], roleChanges: [] };
+
+  if (combatError) report.skipped.push(`Roles de combate sin actualizar: ${combatError}`);
 
   const roleChange = (link, characterName, realmSlug) => (roleId, action) => {
     const role = guild.roles.cache.get(roleId);
@@ -270,7 +285,7 @@ export async function synchronizeWowRoles(guild, linkedMembers, { saveLink, onRo
       realmSlug,
       roleId,
       roleName: role?.name || roleId,
-      category: roleId === config.rosterRoleId ? 'roster' : rankRoleIds.has(roleId) ? 'rango' : 'profesión',
+      category: Object.values(combatRoles || {}).includes(roleId) ? 'combate' : roleId === config.rosterRoleId ? 'roster' : rankRoleIds.has(roleId) ? 'rango' : 'profesión',
       action
     };
     report.roleChanges.push(entry);
@@ -298,7 +313,7 @@ export async function synchronizeWowRoles(guild, linkedMembers, { saveLink, onRo
 
     if (!rosterEntry) {
       try {
-        const changes = await reconcileRoles(member, new Set([config.defaultRankRoleId]), managedIds, botMember, roleChange(link, characterName, characterRealm));
+        const changes = await reconcileRoles(member, new Set([config.defaultRankRoleId]), new Set([...managedIds, ...Object.values(combatRoles || {})]), botMember, roleChange(link, characterName, characterRealm));
         report.ranksChecked += 1;
         if (changes.changed) {
           report.defaultRankApplied += 1;
@@ -345,6 +360,17 @@ export async function synchronizeWowRoles(guild, linkedMembers, { saveLink, onRo
       }
     } catch (error) {
       report.failed.push(`${character.name}: rango ${rankKey} sin actualizar (${error.message})`);
+    }
+
+    if (combatRoles && combatRoster) {
+      const auditCharacter = findAuditCharacter(combatRoster, character.name, character.realm.slug);
+      const role = combatRole(auditCharacter?.role);
+      if (!role) report.skipped.push(`${character.name}: rol de raid WoWAudit ausente, desconocido o ambiguo; se conservan los roles de combate.`);
+      else {
+        try {
+          await reconcileRoles(member, new Set([combatRoles[role]]), new Set(Object.values(combatRoles)), botMember, roleChange(link, character.name, character.realm.slug));
+        } catch (error) { report.failed.push(`${character.name}: rol de combate sin actualizar (${error.message})`); }
+      }
     }
 
     const channelChangesBefore = report.channelsRenamed;

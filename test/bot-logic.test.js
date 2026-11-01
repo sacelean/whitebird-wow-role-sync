@@ -437,3 +437,30 @@ test('roster usa el umbral de Blizzard, independientemente del nombre y mapeo de
     assert.throws(() => getWowConfig(), /WOW_ROSTER_MIN_RANK/);
   }
 });
+
+for (const raidRole of ['Tank', 'Healer', 'Ranged', null]) {
+  test(`sync roles de combate con rangos: ${raidRole}`, async (t) => {
+    const previousKey = process.env.WOWAUDIT_API_KEY;
+    process.env.WOWAUDIT_API_KEY = 'test-audit';
+    t.after(() => { if (previousKey === undefined) delete process.env.WOWAUDIT_API_KEY; else process.env.WOWAUDIT_API_KEY = previousKey; });
+    const { guild, member, roles } = makeGuild([roleIds.rank0]);
+    for (const [id, name] of [['tank', 'Tankes'], ['heal', 'Healers'], ['dps', 'DPS']]) roles.set(id, { id, name, position: 6, managed: false });
+    member.roles.cache.set('dps', roles.get('dps'));
+    t.mock.method(globalThis, 'fetch', async input => {
+      const url = String(input);
+      if (url.endsWith('/v1/characters')) return blizzardResponse([{ id: 1, name: linked.character_name, realm: linked.realm_slug, role: raidRole }]);
+      if (url.includes('/roster')) return blizzardResponse(rosterWith('Asherrna', 2));
+      if (url.includes('/professions')) return blizzardResponse({ primaries: [] });
+      if (url.includes('oauth.battle.net')) return blizzardResponse({ access_token: 'test', expires_in: 3600 });
+      throw new Error(`Petición inesperada: ${url}`);
+    });
+    const report = await synchronizeWowRoles(guild, [linked]);
+    const expected = ({ Tank: 'tank', Healer: 'heal', Ranged: 'dps' })[raidRole] || 'dps';
+    assert.equal(member.roles.cache.has(expected), true);
+    assert.equal(['tank', 'heal', 'dps'].filter(id => member.roles.cache.has(id)).length, 1);
+    assert.equal(member.roles.cache.has(roleIds.rank2), true);
+    assert.equal(report.failed.length, 0);
+    if (raidRole === null) assert.ok(report.skipped.some(message => message.includes('rol de raid')));
+    if (raidRole === 'Healer') assert.equal(report.roleChanges.filter(change => change.category === 'combate').length, 2);
+  });
+}

@@ -1,3 +1,4 @@
+import { combatRole, specializationRole, fetchCombatRoster, findAuditCharacter } from './combat-roles.js';
 import { auditGet } from './wowaudit.js';
 import { nextDailyRun } from './daily-cauldron.js';
 
@@ -104,16 +105,62 @@ export function buildGearReminderMessages(team, overview, links) {
 }
 
 export async function fetchGearReminderMessages(config, links, fetcher = fetch) {
-  const base = `/api/teams/${config.teamId}`;
-  const [team, overview] = await Promise.all([
-    auditGet(base, config.apiKey, fetcher),
-    auditGet(`${base}/overview_data`, config.apiKey, fetcher)
-  ]);
-  return buildGearReminderMessages(team, overview, links);
+  const roster = await fetchCombatRoster(config.apiKey, fetcher);
+  const team = { members: [] };
+  const overview = { enchantData: {
+    enchants_missing: { total: 0, characters: [] },
+    empty_sockets: { total: 0, characters: [] }
+  } };
+  const skipped = [];
+  const seen = new Set();
+  for (const link of links) {
+    const character = findAuditCharacter(roster, link.character_name, link.realm_slug);
+    const expectedRole = combatRole(character?.role);
+    if (!character || !positiveId(character.id) || !expectedRole) {
+      skipped.push({ name: link.character_name, reason: 'rol de raid ausente, desconocido o ambiguo' });
+      continue;
+    }
+    if (seen.has(character.id)) continue;
+    seen.add(character.id);
+    let profile;
+    try { profile = await auditGet(`/api/characters/${character.id}`, config.apiKey, fetcher); }
+    catch (error) { skipped.push({ name: character.name, reason: error.message }); continue; }
+    const actualRole = specializationRole(profile);
+    if (profile?.id !== character.id || !actualRole || actualRole !== expectedRole) {
+      skipped.push({ name: character.name, reason: 'especialización ausente o distinta del rol de raid' });
+      continue;
+    }
+    const gear = profile.details?.gear;
+    if (!gear || typeof gear !== 'object' || Array.isArray(gear) || !Object.keys(gear).length) {
+      skipped.push({ name: character.name, reason: 'equipo auditado no disponible' });
+      continue;
+    }
+    // Use the gear returned alongside currentSpec, avoiding a second snapshot from overview_data.
+    const missing = [];
+    const empty = [];
+    for (const [slot, item] of Object.entries(gear)) {
+      if (!item) continue;
+      requireSchema(Object.hasOwn(slotNames, slot) && Array.isArray(item.sockets), 'perfil.gear');
+      if (item.enchant?.missing === true) missing.push(slot);
+      for (const socket of item.sockets) {
+        requireSchema(socket && Object.hasOwn(socket, 'gem'), 'perfil.gear.sockets');
+        if (!socket.gem) empty.push(slot);
+      }
+    }
+    team.members.push({ characterReference: { id: character.id, name: character.name, realm: { slug: character.realm } } });
+    for (const [category, slots] of [['enchants_missing', missing], ['empty_sockets', empty]]) {
+      overview.enchantData[category].characters.push({ id: character.id, slots });
+      overview.enchantData[category].total += slots.length;
+    }
+  }
+  // Empty categories must not create recipients without actual gear issues.
+  for (const category of Object.values(overview.enchantData)) category.characters = category.characters.filter(entry => entry.slots.length);
+  return { ...buildGearReminderMessages(team, overview, links), skipped };
 }
 
 export async function sendGearReminders(guild, config, links, fetcher = fetch) {
-  const { messages, unlinked } = await fetchGearReminderMessages(config, links, fetcher);
+  const { messages, unlinked, skipped } = await fetchGearReminderMessages(config, links, fetcher);
+  for (const character of skipped) console.warn(`Aviso WoWAudit omitido para ${character.name}: ${character.reason}.`);
   for (const character of unlinked) {
     const reason = character.ambiguous ? 'vinculación ambigua' : character.missingChannel ? 'sin canal Raider asociado' : 'sin vínculo de Discord';
     console.warn(`Aviso WoWAudit omitido para ${character.name} · ${character.realm}: ${reason}.`);
