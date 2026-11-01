@@ -1,5 +1,10 @@
 # Release notes — Whitebird WoW Role Sync
 
+## 2026-11-01 · Rol conjunto roster
+
+- Añadida sincronización opcional del rol `roster` para mencionar conjuntamente a los miembros vinculados con el rango mínimo de Blizzard configurado o uno superior (`WOW_ROSTER_MIN_RANK`, por defecto 4: incluye del 0 al 4).
+- El rol se retira al bajar del rango mínimo configurado, salir de la guild o quitar la vinculación. Requiere configurar el ID del nuevo rol en el servidor.
+
 ## 2026-11-01 · Ajuste visual de la tabla de raiders
 
 - Recuperada la línea de separación entre la cabecera y los datos.

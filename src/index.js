@@ -558,7 +558,8 @@ async function buildAuditReport(guild) {
   const managedRoles = [
     ...Object.entries(config.rankRoles).map(([rank, id]) => ({ id, label: `rango ${rank}` })),
     ...Object.entries(config.professionRoles).map(([name, id]) => ({ id, label: `profesión ${name}` })),
-    { id: config.defaultRankRoleId, label: 'rango por defecto Viajante' }
+    { id: config.defaultRankRoleId, label: 'rango por defecto Viajante' },
+    ...(config.rosterRoleId ? [{ id: config.rosterRoleId, label: 'roster' }] : [])
   ];
   for (const { id, label } of managedRoles) {
     const role = guild.roles.cache.get(id);
@@ -858,10 +859,20 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.commandName === 'vinculacion-quitar') {
       if (!isOfficer(interaction)) return interaction.reply(unauthorizedReply());
       const target = interaction.options.getUser('usuario', true);
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      const rosterRoleId = (process.env.WOW_ROSTER_ROLE_ID || '').trim() ? getWowConfig().rosterRoleId : null;
+      if (rosterRoleId) {
+        const member = await interaction.guild.members.fetch(target.id).catch(error => {
+          if (Number(error.code) === 10007) return null;
+          throw error;
+        });
+        if (member?.roles.cache.has(rosterRoleId)) {
+          await member.roles.remove(rosterRoleId, 'Vinculación WoW retirada: deja de pertenecer a roster');
+        }
+      }
       const removed = removeWowLink(guildId, target.id);
-      return interaction.reply({
+      return interaction.editReply({
         content: removed ? `Se quitó la vinculación de WoW de <@${target.id}>.` : `<@${target.id}> no tenía un personaje vinculado.`,
-        flags: MessageFlags.Ephemeral,
         allowedMentions: { parse: [] }
       });
     }

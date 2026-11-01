@@ -26,15 +26,24 @@ export function getWowConfig() {
   if (!['us', 'eu', 'kr', 'tw'].includes(region)) throw new Error('WOW_REGION debe ser us, eu, kr o tw.');
   const rankRoles = parseRoleMap('WOW_RANK_ROLE_IDS');
   const professionRoles = parseRoleMap('WOW_PROFESSION_ROLE_IDS');
+  const rosterRoleId = (process.env.WOW_ROSTER_ROLE_ID || '').trim();
+  const rosterMinRankRaw = (process.env.WOW_ROSTER_MIN_RANK ?? '4').trim();
+  if (!/^\d+$/.test(rosterMinRankRaw) || !Number.isSafeInteger(Number(rosterMinRankRaw))) {
+    throw new Error('WOW_ROSTER_MIN_RANK debe ser un entero no negativo (0 es Guild Master).');
+  }
+  const rosterMinRank = Number(rosterMinRankRaw);
+  if (rosterRoleId && !/^\d{15,22}$/.test(rosterRoleId)) throw new Error('WOW_ROSTER_ROLE_ID no parece un ID de rol de Discord.');
   if (!/^\d{15,22}$/.test(defaultRankRoleId)) throw new Error('WOW_DEFAULT_RANK_ROLE_ID no parece un ID de rol de Discord.');
-  const ids = [...Object.values(rankRoles), ...Object.values(professionRoles), defaultRankRoleId];
-  if (new Set(ids).size !== ids.length) throw new Error('Un mismo ID de rol no puede repetirse entre los rangos, profesiones y el rol por defecto.');
+  const ids = [...Object.values(rankRoles), ...Object.values(professionRoles), defaultRankRoleId, ...(rosterRoleId ? [rosterRoleId] : [])];
+  if (new Set(ids).size !== ids.length) throw new Error('Un mismo ID de rol no puede repetirse entre los rangos, profesiones, roster y el rol por defecto.');
   return {
     region,
     locale,
     rankRoles,
     professionRoles,
-    defaultRankRoleId
+    defaultRankRoleId,
+    rosterRoleId,
+    rosterMinRank
   };
 }
 
@@ -240,13 +249,14 @@ function validateManagedRoles(guild, botMember, managedIds) {
 function getManagedRoleSets(config) {
   const rankIds = new Set([...Object.values(config.rankRoles), config.defaultRankRoleId]);
   const professionIds = new Set(Object.values(config.professionRoles));
-  return { rankIds, professionIds, managedIds: new Set([...rankIds, ...professionIds]) };
+  const membershipIds = new Set([...rankIds, ...(config.rosterRoleId ? [config.rosterRoleId] : [])]);
+  return { rankIds, membershipIds, professionIds, managedIds: new Set([...membershipIds, ...professionIds]) };
 }
 
 export async function synchronizeWowRoles(guild, linkedMembers, { saveLink, onRoleChange, onRaiderSync } = {}) {
   const config = getWowConfig();
   const roster = await fetchGuildRoster();
-  const { rankIds: rankRoleIds, professionIds: professionRoleIds, managedIds } = getManagedRoleSets(config);
+  const { rankIds: rankRoleIds, membershipIds, professionIds: professionRoleIds, managedIds } = getManagedRoleSets(config);
   const botMember = await guild.members.fetchMe();
   validateManagedRoles(guild, botMember, managedIds);
   const report = { synced: 0, ranksChecked: 0, defaultRankApplied: 0, outsideRoster: 0, outsideRosterDefaultApplied: 0, rankDetails: [], channelChanges: [], channelsRenamed: 0, channelDetails: [], channelFailures: [], professionsChecked: 0, promotionMessages: [], skipped: [], failed: [], roleChanges: [] };
@@ -260,7 +270,7 @@ export async function synchronizeWowRoles(guild, linkedMembers, { saveLink, onRo
       realmSlug,
       roleId,
       roleName: role?.name || roleId,
-      category: rankRoleIds.has(roleId) ? 'rango' : 'profesión',
+      category: roleId === config.rosterRoleId ? 'roster' : rankRoleIds.has(roleId) ? 'rango' : 'profesión',
       action
     };
     report.roleChanges.push(entry);
@@ -321,7 +331,11 @@ export async function synchronizeWowRoles(guild, linkedMembers, { saveLink, onRo
     const promotion = getRaiderPromotion(guild, member, rankRoleId, config.rankRoles);
     let rankUpdated = false;
     try {
-      const changes = await reconcileRoles(member, new Set([rankRoleId]), rankRoleIds, botMember, roleChange(link, character.name, character.realm.slug));
+      const desiredRoles = new Set([rankRoleId]);
+      if (config.rosterRoleId && Number.isInteger(rosterEntry.rank) && rosterEntry.rank >= 0 && rosterEntry.rank <= config.rosterMinRank) {
+        desiredRoles.add(config.rosterRoleId);
+      }
+      const changes = await reconcileRoles(member, desiredRoles, membershipIds, botMember, roleChange(link, character.name, character.realm.slug));
       rankUpdated = true;
       report.ranksChecked += 1;
       if (changes.changed) {

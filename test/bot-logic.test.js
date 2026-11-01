@@ -21,6 +21,7 @@ process.env.WOW_PROFESSION_ROLE_IDS = JSON.stringify({
 });
 
 const {
+  getWowConfig,
   findGuildRosterCharacter,
   getUnlinkedMappedRosterMembers,
   rankGuildRosterCandidates,
@@ -385,4 +386,54 @@ test('un fallo del aviso de ascenso no detiene las profesiones ni la sincronizac
   assert.equal(report.synced, 1);
   assert.equal(report.professionsChecked, 1);
   assert.ok(report.failed.some(message => message.includes('Aviso pendiente')));
+});
+
+
+test('roster usa el umbral de Blizzard, independientemente del nombre y mapeo del rol', async (t) => {
+  const rosterId = '100000000000099';
+  const previous = [process.env.WOW_ROSTER_ROLE_ID, process.env.WOW_ROSTER_MIN_RANK];
+  process.env.WOW_ROSTER_ROLE_ID = rosterId;
+  process.env.WOW_ROSTER_MIN_RANK = '4';
+  t.after(() => {
+    ['WOW_ROSTER_ROLE_ID', 'WOW_ROSTER_MIN_RANK'].forEach((key, i) => {
+      if (previous[i] === undefined) delete process.env[key]; else process.env[key] = previous[i];
+    });
+  });
+  let selectedRoster;
+  t.mock.method(globalThis, 'fetch', async input => {
+    const url = String(input);
+    if (url.includes('/roster')) return blizzardResponse(selectedRoster);
+    if (url.includes('/professions')) return blizzardResponse({ primaries: [] });
+    return blizzardResponse({ access_token: 'test-token', expires_in: 3600 });
+  });
+  const { guild, member, roles } = makeGuild([roleIds.rank2]);
+  roles.set(rosterId, { id: rosterId, name: 'roster', position: 6, managed: false });
+  roles.get(roleIds.rank2).name = 'Social';
+  selectedRoster = rosterWith('Asherrna', 2);
+  await synchronizeWowRoles(guild, []);
+  assert.equal(member.roles.cache.has(rosterId), false);
+  for (const rank of [0, 2, 4, 5, 4]) {
+    selectedRoster = rosterWith('Asherrna', rank);
+    const hadRoster = member.roles.cache.has(rosterId);
+    const report = await synchronizeWowRoles(guild, [linked]);
+    assert.equal(member.roles.cache.has(rosterId), rank <= 4);
+    assert.equal(report.roleChanges.some(change => change.roleId === rosterId && change.category === 'roster'), hadRoster !== (rank <= 4));
+    const unchanged = await synchronizeWowRoles(guild, [linked]);
+    assert.equal(unchanged.roleChanges.length, 0);
+  }
+  process.env.WOW_ROSTER_MIN_RANK = '0';
+  await synchronizeWowRoles(guild, [linked]);
+  assert.equal(member.roles.cache.has(rosterId), false);
+  selectedRoster = rosterWith('Asherrna', 0);
+  await synchronizeWowRoles(guild, [linked]);
+  assert.equal(member.roles.cache.has(rosterId), true);
+  selectedRoster = { members: [] };
+  await synchronizeWowRoles(guild, [linked]);
+  assert.equal(member.roles.cache.has(rosterId), false);
+  delete process.env.WOW_ROSTER_MIN_RANK;
+  assert.equal(getWowConfig().rosterMinRank, 4);
+  for (const invalid of ['', '-1', '1.5', 'abc', '9007199254740992']) {
+    process.env.WOW_ROSTER_MIN_RANK = invalid;
+    assert.throws(() => getWowConfig(), /WOW_ROSTER_MIN_RANK/);
+  }
 });

@@ -2,6 +2,8 @@
 
 [Release notes](RELEASE_NOTES.md)
 
+El panel de configuración se mantiene en el repositorio independiente `whitebird-control-panel`. Administra WoW Role Sync, Recruitment y Ruleta mediante rutas a sus archivos de configuración; no forma parte del código ni del despliegue de este bot.
+
 Bot de Discord para Whitebird: vincula mains del roster de Blizzard, sincroniza roles de rango y profesión, mantiene los nombres de los canales Raider y gestiona calderos. Opcionalmente integra informes de WoWAudit, avisos de encantamientos y gemas y propuestas de listas BIS de Method o Blingtron.
 
 Funciona para un único servidor de Discord (`DISCORD_GUILD_ID`) y guarda su estado en SQLite. Es independiente del bot de recruitment y del bot de la ruleta de alters.
@@ -102,6 +104,14 @@ La sincronización automática diaria se configura con `WOW_SYNC_HOUR` (hora de 
 Configura `OFFICER_REPORT_CHANNEL_ID` con un canal de texto privado para oficiales. Cada sincronización diaria publicará allí el resumen de cambios de roles, canales renombrados y omisiones. El bot necesita permiso para ver y enviar mensajes en ese canal.
 
 Configura `RELEASE_NOTES_CHANNEL_ID` con el ID del canal de entrada. Al arrancar, el bot publica la primera sección (`## ...`) de `RELEASE_NOTES.md` una sola vez por contenido y servidor; guarda el identificador de la nota en SQLite para no repetirla tras reiniciar. Cuando prepares otra versión, añade su sección al principio del archivo y despliega el bot. Si cambia el título o el cuerpo de esa sección, se considera una nota nueva. El anuncio completo debe caber en 2000 caracteres. Dale permiso para ver y enviar mensajes en el canal.
+
+## Rol conjunto roster
+
+Crea en Discord un rol llamado `roster`, sin permisos adicionales, y colócalo debajo del rol del bot. Configura `WOW_ROSTER_ROLE_ID=ID_DEL_ROL` en el `.env` de OCI y recrea el contenedor para aplicar la variable. Si quieres que cualquier miembro pueda mencionar `@roster`, activa «Permitir que cualquiera mencione este rol» en Discord.
+
+Configura `WOW_ROSTER_MIN_RANK=4` para incluir los rangos de Blizzard 0, 1, 2, 3 y 4: los números menores representan rangos superiores y 0 es Guild Master. El valor por defecto es 4 y debe ser un entero no negativo. La sincronización manual o diaria añade `roster` a personas con personaje vinculado que cumpla ese umbral, independientemente del nombre del rol de Discord o de su mapeo en `WOW_RANK_ROLE_IDS`. Retira `roster` si pasan a un rango inferior (número mayor que el mínimo configurado) o salen de la guild. El comando `/vinculacion-quitar` lo retira antes de eliminar la vinculación. No se recorren los miembros sin vinculación ni se cambian sus roles; no asignes `roster` manualmente a esas personas si quieres mantener esta condición.
+
+El ID debe ser distinto de los roles de rango, profesión y Viajante. Se valida su existencia y jerarquía antes de aplicar cambios y los cambios aparecen en el historial. Sin `WOW_ROSTER_ROLE_ID`, esta función queda desactivada. Tras desplegar y configurar el ID, ejecuta `/sincronizacion-ejecutar` para asignarlo a los miembros que ya están vinculados.
 
 ## Felicitación al ascender de Recluta a Raider
 
