@@ -30,9 +30,9 @@ test('weekly tick publishes only one raider report with loot and sorting control
  try {
   for(let i=0;i<20 && !getRaiderPanel(guild.id,channel.id)?.message_id;i++) await new Promise(resolve=>setImmediate(resolve));
   assert.equal(sent,1);
-  assert.match(payload.embeds[0].title,/Raiders/);
-  assert.match(payload.embeds[0].description,/Loot/);
-  assert.equal(payload.components[0].components[0].custom_id,'wow-raiders-sort');
+  assert.match(payload.components[0].content,/Raiders/);
+  assert.match(payload.components[0].content,/Loot/);
+  assert.equal(payload.components[1].components[0].custom_id,'wow-raiders-sort');
   assert.equal(requests.filter(path=>path==='/v1/loot_history/18').length,1);
   assert.equal(getRaiderPanel(guild.id,channel.id).last_slot,'2026-11-04');
  } finally {stop?.();}

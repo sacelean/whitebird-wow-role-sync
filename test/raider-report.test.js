@@ -24,7 +24,7 @@ test('sorting reuses persisted data and message, preserves weekly marker and nex
  await publishRaiderReport(s.guild,'channel',snapshot,'2026-10-28');
  await sortRaiderReport(s.guild,'channel','message','name_asc');
  assert.equal(s.calls.send,1);assert.equal(s.calls.edit,1);
- assert.ok(s.calls.payload.embeds[0].description.indexOf('Ana')<s.calls.payload.embeds[0].description.indexOf('Zeta'));
+ assert.ok(s.calls.payload.components[0].content.indexOf('Ana')<s.calls.payload.components[0].content.indexOf('Zeta'));
  assert.equal(getRaiderPanel('sorting','channel').last_slot,'2026-10-28');
  assert.deepEqual(getRaiderView('sorting','channel'),{snapshot,order:'name_asc'});
  const refreshed={...snapshot,date:'2026-11-04'};

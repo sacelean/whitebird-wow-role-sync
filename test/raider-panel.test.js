@@ -35,6 +35,16 @@ test('editing a saved panel replaces its embed with normal message content',asyn
  assert.equal(s.calls.editOptions.content,textPayload.content);
  assert.deepEqual(s.calls.editOptions.embeds,[]);
 });
+test('editing an old report clears legacy content and embeds when enabling Text Display',async()=>{
+ const s=setup(); await updateRaiderPanel(s.guild,config,payload,s.store);
+ const fullReport={flags:1<<15,components:[{type:10,content:'Tabla completa'}]};
+ await updateRaiderPanel(s.guild,config,fullReport,s.store);
+ assert.equal(s.calls.editOptions.flags,1<<15);
+ assert.equal(s.calls.editOptions.content,null);
+ assert.deepEqual(s.calls.editOptions.embeds,[]);
+ assert.deepEqual(s.calls.editOptions.components,fullReport.components);
+ assert.equal(s.calls.send,1);
+});
 test('only Unknown Message creates a replacement',async()=>{
  const s=setup(); await updateRaiderPanel(s.guild,config,payload,s.store);
  s.channel.messages.fetch=async()=>{throw {code:10008};};

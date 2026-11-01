@@ -2,7 +2,7 @@
 
 ## 2026-11-01 · Informe de raiders y felicitaciones de ascenso
 
-- El informe de raiders sustituye al informe separado de loot e incluye una columna con el enlace al canal Raider de cada personaje vinculado.
+- El informe de raiders sustituye al informe separado de loot. Se publica en un único mensaje sin embed ni paginación, con una tabla alineada y los enlaces a los canales Raider aparecen debajo, numerados según las filas, para evitar saltos de línea dentro de la tabla.
 - Nuevo selector para ordenar por loot, iLvl o nombre, en sentido ascendente o descendente. Los oficiales pueden cambiar el orden del mensaje compartido; se conserva tras reinicios y futuras actualizaciones.
 - Se mantiene el mensaje y el destino de raiders y se retiran las tablas antiguas del informe de loot. Los mensajes de loot ya publicados se pueden borrar manualmente.
 

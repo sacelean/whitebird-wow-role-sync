@@ -28,29 +28,33 @@ export function renderRaiderReport(snapshot, order = 'ilvl_desc') {
   const rows = sortRaiderRows(snapshot.rows, order);
   const clean = value => String(value).replace(/[`\r\n|<>@]/g, ' ').trim();
   const number = value => value === null ? '—' : Number.isInteger(value) ? String(value) : value.toFixed(1);
-  const width = Math.max(6, ...rows.map(row => Math.min(12, clean(row.name).length)));
-  const header = `# ${'Nombre'.padEnd(width)} Loot Keys    Raid     iLvl`;
-  const lines = rows.map((row, index) => {
-    const cells = [String(index + 1).padStart(2), clean(row.name).slice(0, 12).padEnd(width),
-      String(row.loot).padStart(4), row.keys.padEnd(7), row.raid.padEnd(8), number(row.ilvl).padStart(5)];
+  const headings = ['#', 'Nombre', 'Loot', 'Keys', 'Raid', 'iLvl'];
+  const cells = rows.map((row, index) => [String(index + 1), clean(row.name).slice(0, 12),
+    String(row.loot), clean(row.keys), clean(row.raid), number(row.ilvl)]);
+  const widths = headings.map((heading, column) => Math.max(heading.length,
+    ...cells.map(row => row[column].length)));
+  const format = row => row.map((value, column) => column === 0 || column === 2 || column === 5
+    ? value.padStart(widths[column]) : value.padEnd(widths[column])).join(' ');
+  const lines = cells.map(format);
+  const channels = rows.map((row, index) => {
     const channel = /^\d{15,22}$/.test(row.channelId || '') ? `<#${row.channelId}>` : '—';
-    return `\`${cells.join(' ')}\` ${channel}`;
+    return `${index + 1}. ${channel}`;
   });
-  const description = [
-    `Roster en seguimiento: ${snapshot.ranks.map(clean).join(', ')} · ${rows.length} personajes · **${snapshot.total} objetos**.`,
-    `Mythic · categorías: ${snapshot.categories.map(clean).join(', ')}.`,
-    '', `\`${header}\` **Canal Raider**`, ...lines
+  const content = [
+    `**Raiders · ${snapshot.date} · p${snapshot.period}**`,
+    `${rows.length} personajes · **${snapshot.total} objetos**`,
+    `Rangos: ${snapshot.ranks.map(clean).join(', ')}.`,
+    `Mythic · ${snapshot.categories.map(clean).join(', ')}.`,
+    '', '```text', format(headings), ...lines, '```',
+    '**Canales Raider**', ...channels,
+    `Orden: ${RAIDER_ORDERS.find(option => option.value === order).label}`,
+    'Keys/Raid: vault · iLvl: actual · —: sin datos o canal.'
   ].join('\n');
-  const embed = {
-    title: `Raiders · ${snapshot.date} · p${snapshot.period}`, description, color: 0x38b66b,
-    footer: { text: `Orden: ${RAIDER_ORDERS.find(option => option.value === order).label} · Keys/Raid vault · iLvl actual · — = sin datos o canal sin vincular.` }
-  };
-  if (description.length > 4096 || embed.title.length + description.length + embed.footer.text.length > 6000) {
-    throw new Error('La tabla completa supera el límite de un mensaje Discord.');
-  }
+  if (content.length > 4000) throw new Error('El informe completo supera el límite de 4000 caracteres de un mensaje Discord.');
   return {
-    embeds: [embed], allowedMentions: { parse: [] },
-    components: [{ type: 1, components: [{ type: 3, custom_id: 'wow-raiders-sort',
+    // Text Display allows the full roster without an embed or pagination.
+    flags: 1 << 15, allowedMentions: { parse: [] },
+    components: [{ type: 10, content }, { type: 1, components: [{ type: 3, custom_id: 'wow-raiders-sort',
       placeholder: 'Ordenar informe', min_values: 1, max_values: 1,
       options: RAIDER_ORDERS.map(option => ({ ...option, default: option.value === order })) }] }]
   };
