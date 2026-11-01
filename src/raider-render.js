@@ -36,19 +36,14 @@ export function renderRaiderReport(snapshot, order = 'ilvl_desc') {
   const format = row => row.map((value, column) => column === 0 || column === 2 || column === 5
     ? value.padStart(widths[column]) : value.padEnd(widths[column])).join(' ');
   const lines = cells.map(format);
-  const channels = rows.map((row, index) => {
-    const channel = /^\d{15,22}$/.test(row.channelId || '') ? `<#${row.channelId}>` : '—';
-    return `${index + 1}. ${channel}`;
-  });
   const content = [
     `**Raiders · ${snapshot.date} · p${snapshot.period}**`,
     `${rows.length} personajes · **${snapshot.total} objetos**`,
     `Rangos: ${snapshot.ranks.map(clean).join(', ')}.`,
     `Mythic · ${snapshot.categories.map(clean).join(', ')}.`,
-    '', '```text', format(headings), ...lines, '```',
-    '**Canales Raider**', ...channels,
+    '', '```text', format(headings), '─'.repeat(format(headings).length), ...lines, '```',
     `Orden: ${RAIDER_ORDERS.find(option => option.value === order).label}`,
-    'Keys/Raid: vault · iLvl: actual · —: sin datos o canal.'
+    'Keys/Raid: vault · iLvl: actual · —: sin datos.'
   ].join('\n');
   if (content.length > 4000) throw new Error('El informe completo supera el límite de 4000 caracteres de un mensaje Discord.');
   return {

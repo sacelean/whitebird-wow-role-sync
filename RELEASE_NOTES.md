@@ -1,5 +1,10 @@
 # Release notes — Whitebird WoW Role Sync
 
+## 2026-11-01 · Ajuste visual de la tabla de raiders
+
+- Recuperada la línea de separación entre la cabecera y los datos.
+- Retirada la lista de canales Raider para mantener el informe centrado en una única tabla alineada, sin embed ni paginación.
+
 ## 2026-11-01 · Informe de raiders y felicitaciones de ascenso
 
 - El informe de raiders sustituye al informe separado de loot. Se publica en un único mensaje sin embed ni paginación, con una tabla alineada y los enlaces a los canales Raider aparecen debajo, numerados según las filas, para evitar saltos de línea dentro de la tabla.

@@ -13,32 +13,33 @@ test('all six sorts preserve rows and place missing iLvl last',()=>{
  assert.deepEqual(rows.map(row=>row.id),[1,2,3]);
  assert.throws(()=>sortRaiderRows(rows,'invalid'));
 });
-test('30 raiders fit one non-embed message with aligned table and clickable channels',()=>{
+test('30 raiders fit one non-embed message with aligned table and header separator',()=>{
  const snapshot={date:'2026-11-01',period:1090,ranks:['Oficiales','Fijo','Rotativo','Trial'],categories:['BIS','Mejora de stats','set 4p','Catalizar'],total:30,
   rows:Array.from({length:30},(_,i)=>({...rows[0],id:i+1,name:`Raider${String(i).padStart(6,'0')}`}))};
  const report=renderRaiderReport(snapshot,'loot_asc');
  const table=report.components[0].content.split('```text\n')[1].split('\n```')[0].split('\n');
- assert.equal(table.length,31);
+ assert.equal(table.length,32);
  assert.equal(new Set(table.map(line=>line.length)).size,1);
  assert.ok(report.components[0].content.length<=4000);
  assert.equal(report.flags,1<<15);
  assert.equal(report.embeds,undefined);
  assert.equal(report.components.length,2);
- assert.match(report.components[0].content,/Canales Raider/);
- assert.match(report.components[0].content,/<#123456789012345678>/);
+ assert.match(table[1],/^─+$/);
+ assert.equal(table[1].length,table[0].length);
+ assert.doesNotMatch(report.components[0].content,/Canales Raider|<#/);
  assert.doesNotThrow(()=>new ActionRowBuilder(report.components[1]).toJSON());
  assert.equal(report.components[1].components[0].options.length,6);
  assert.equal(report.components[1].components[0].options.find(option=>option.default).value,'loot_asc');
  assert.deepEqual(report.allowedMentions,{parse:[]});
  assert.doesNotMatch(report.components[0].content,/Página/);
 });
-test('wide vault values stay aligned and channel numbers follow the selected sort',()=>{
+test('wide vault values stay aligned under the header separator in the selected sort',()=>{
  const snapshot={date:'2026-11-01',period:1090,ranks:[],categories:[],total:4,
   rows:rows.map(row=>({...row,raid:'318/318/318',keys:'12/12/12'}))};
  const report=renderRaiderReport(snapshot,'name_asc');
  const table=report.components[0].content.split('```text\n')[1].split('\n```')[0].split('\n');
  assert.equal(new Set(table.map(line=>line.length)).size,1);
- assert.match(table[1],/Ana/);
- assert.match(table[3],/Zeta/);
- assert.ok(report.components[0].content.includes('1. —\n2. —\n3. <#123456789012345678>'));
+ assert.match(table[2],/Ana/);
+ assert.match(table[4],/Zeta/);
+ assert.doesNotMatch(report.components[0].content,/<#/);
 });
