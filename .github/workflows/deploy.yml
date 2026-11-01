@@ -1,0 +1,46 @@
+name: Test and deploy to OCI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Build production image
+        run: docker build -t whitebird-test .
+      - name: Run tests without production credentials
+        run: docker run --rm whitebird-test npm test
+
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: oci-production
+      cancel-in-progress: false
+    env:
+      OCI_HOST: ${{ secrets.OCI_HOST }}
+      OCI_USER: ${{ secrets.OCI_USER }}
+      OCI_SSH_KEY: ${{ secrets.OCI_SSH_KEY }}
+      OCI_KNOWN_HOSTS: ${{ secrets.OCI_KNOWN_HOSTS }}
+      OCI_DEPLOY_PATH: ${{ secrets.OCI_DEPLOY_PATH }}
+      OCI_SSH_PORT: ${{ secrets.OCI_SSH_PORT || '22' }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Configure SSH and deploy
+        shell: bash
+        run: bash scripts/deploy-oci.sh
