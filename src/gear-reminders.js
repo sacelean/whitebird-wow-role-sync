@@ -112,6 +112,7 @@ export async function fetchGearReminderMessages(config, links, fetcher = fetch) 
     empty_sockets: { total: 0, characters: [] }
   } };
   const skipped = [];
+  const checked = [];
   const seen = new Set();
   for (const link of links) {
     const character = findAuditCharacter(roster, link.character_name, link.realm_slug);
@@ -127,7 +128,7 @@ export async function fetchGearReminderMessages(config, links, fetcher = fetch) 
     catch (error) { skipped.push({ name: character.name, reason: error.message }); continue; }
     const actualRole = specializationRole(profile);
     if (profile?.id !== character.id || !actualRole || actualRole !== expectedRole) {
-      skipped.push({ name: character.name, reason: 'especialización ausente o distinta del rol de raid' });
+      skipped.push({ name: character.name, reason: `especialización ausente o distinta del rol de raid (raid: ${expectedRole}; especialización: ${actualRole || 'desconocida'})` });
       continue;
     }
     const gear = profile.details?.gear;
@@ -147,6 +148,7 @@ export async function fetchGearReminderMessages(config, links, fetcher = fetch) 
         if (!socket.gem) empty.push(slot);
       }
     }
+    checked.push({ name: character.name, role: expectedRole, specializationRole: actualRole });
     team.members.push({ characterReference: { id: character.id, name: character.name, realm: { slug: character.realm } } });
     for (const [category, slots] of [['enchants_missing', missing], ['empty_sockets', empty]]) {
       overview.enchantData[category].characters.push({ id: character.id, slots });
@@ -155,11 +157,14 @@ export async function fetchGearReminderMessages(config, links, fetcher = fetch) 
   }
   // Empty categories must not create recipients without actual gear issues.
   for (const category of Object.values(overview.enchantData)) category.characters = category.characters.filter(entry => entry.slots.length);
-  return { ...buildGearReminderMessages(team, overview, links), skipped };
+  return { ...buildGearReminderMessages(team, overview, links), skipped, checked };
 }
 
 export async function sendGearReminders(guild, config, links, fetcher = fetch) {
-  const { messages, unlinked, skipped } = await fetchGearReminderMessages(config, links, fetcher);
+  return sendPreparedGearReminders(guild, await fetchGearReminderMessages(config, links, fetcher));
+}
+
+export async function sendPreparedGearReminders(guild, { messages, unlinked, skipped }) {
   for (const character of skipped) console.warn(`Aviso WoWAudit omitido para ${character.name}: ${character.reason}.`);
   for (const character of unlinked) {
     const reason = character.ambiguous ? 'vinculación ambigua' : character.missingChannel ? 'sin canal Raider asociado' : 'sin vínculo de Discord';

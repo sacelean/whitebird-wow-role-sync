@@ -2,7 +2,7 @@ import { notifyRaiderPromotion } from './raider-promotion.js';
 import 'dotenv/config';
 import { publishRaiderReport, sortRaiderReport } from './raider-report.js';
 import { startRaiderScheduler } from './raider-scheduler.js';
-import { startGearReminderScheduler } from './gear-reminders.js';
+import { startGearReminderScheduler, getGearReminderConfig, fetchGearReminderMessages, sendPreparedGearReminders } from './gear-reminders.js';
 import { publishLatestReleaseNote } from './release-notes.js';
 import { getRaiderConfig, fetchRaiderTableReport, raiderErrorMessage } from './wowaudit.js';
 import { auditGet } from './wowaudit.js';
@@ -761,6 +761,30 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (!interaction.isChatInputCommand()) return;
     if (interaction.guildId !== guildId) {
       return interaction.reply({ content: 'Este bot solo está configurado para su servidor de Whitebird.', flags: MessageFlags.Ephemeral });
+    }
+
+    if (interaction.commandName === 'equipo-comprobar') {
+      if (!isOfficer(interaction)) return interaction.reply(unauthorizedReply());
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      const target = interaction.options.getUser('usuario', true);
+      const link = getWowLinks(guildId).find(item => item.user_id === target.id);
+      if (!link) return interaction.editReply('El usuario no tiene un personaje vinculado.');
+      const config = getGearReminderConfig();
+      if (!config) return interaction.editReply('Configura WOWAUDIT_API_KEY y WOWAUDIT_TEAM_ID para comprobar el equipo.');
+      const result = await fetchGearReminderMessages(config, [link]);
+      const lines = [`Comprobación de ${link.character_name} · ${link.realm_slug} (últimos datos guardados en WoWAudit).`];
+      for (const entry of result.checked) lines.push(`Rol de raid: ${entry.role}. Especialización: ${entry.specializationRole}. Coinciden.`);
+      for (const entry of result.skipped) lines.push(`Comprobación omitida: ${entry.reason}.`);
+      for (const entry of result.unlinked) lines.push(`Aviso omitido: ${entry.missingChannel ? 'sin canal Raider asociado' : 'vinculación ausente o ambigua'}.`);
+      if (result.checked.length && !result.messages.length && !result.unlinked.length) lines.push('Sin encantamientos ausentes ni huecos de gema vacíos.');
+      for (const message of result.messages) lines.push('', message.content);
+      if (interaction.options.getBoolean('enviar') === true) {
+        const delivery = await sendPreparedGearReminders(interaction.guild, result);
+        lines.push(`Envío al canal Raider: ${delivery.sent} enviados · ${delivery.failed} fallidos.`);
+      } else {
+        lines.push('Solo diagnóstico privado. Usa enviar:true para enviar el aviso al canal Raider y mencionar al usuario.');
+      }
+      return interaction.editReply({ content: lines.join('\n'), allowedMentions: { parse: [] } });
     }
 
     if (interaction.commandName === 'bis-proponer') {

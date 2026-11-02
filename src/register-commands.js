@@ -8,6 +8,12 @@ if (!token || !clientId || !guildId) throw new Error('Configura DISCORD_TOKEN, D
 
 const commands = [
   new SlashCommandBuilder()
+    .setName('equipo-comprobar')
+    .setDescription('Comprueba encantamientos y gemas de un usuario (oficiales)')
+    .addUserOption(option => option.setName('usuario').setDescription('Miembro vinculado que comprobar').setRequired(true))
+    .addBooleanOption(option => option.setName('enviar').setDescription('Enviar el aviso real al canal Raider (por defecto: no)')),
+
+  new SlashCommandBuilder()
     .setName('informe-raiders')
     .setDescription('Publica o actualiza la tabla semanal de raiders (oficiales)')
     .addChannelOption(option => option.setName('canal').setDescription('Canal del informe de raiders').addChannelTypes(ChannelType.GuildText).setRequired(false)),

@@ -96,3 +96,16 @@ test('Shadow con default_role Healer se omite para un healer; Disciplina y Mistw
     assert.equal(result.messages.length, expected, `specialization ${specId}`);
   }
 });
+
+test('diagnóstico distingue equipo correcto de una comprobación omitida sin enviar mensajes', async () => {
+  const cleanProfile = profile(11);
+  cleanProfile.details.gear.head = { enchant: { missing: false }, sockets: [{ gem: { id: 1 } }] };
+  const fetcher = async url => ({ ok: true, json: async () => url.endsWith('/v1/characters') ? roster : cleanProfile });
+  const result = await fetchGearReminderMessages({ apiKey: 'secret' }, [
+    { user_id: 'u', character_name: 'RaiderA', realm_slug: 'zuljin', raider_channel_id: 'c' }
+  ], fetcher);
+  assert.deepEqual(result.checked, [{ name: 'RaiderA', role: 'healer', specializationRole: 'healer' }]);
+  assert.equal(result.messages.length, 0);
+  assert.equal(result.skipped.length, 0);
+  assert.equal(result.unlinked.length, 0);
+});

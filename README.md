@@ -53,6 +53,7 @@ Las tareas se ejecutan dentro del proceso del bot, sin cron. Las zonas IANA resp
 | `/sincronizacion-usuario` | Sincroniza solo al usuario elegido (oficiales). |
 | `/auditoria-revisar` | Comprueba vínculos, roles, roster, canales y calderos (oficiales). |
 | `/historial-cambios` | Consulta cambios de roles recientes, opcionalmente filtrados por usuario (oficiales). |
+| `/equipo-comprobar usuario enviar` | Comprueba en privado encantamientos, gemas y coincidencia del rol de un usuario (oficiales). Con `enviar:true`, envía el aviso real al canal Raider y menciona al usuario; por defecto no envía. |
 | `/informe-raiders` | Actualiza la tabla de raiders y elige su canal de publicación (oficiales). |
 | `/bis-proponer` | Envía una propuesta BIS a un raider vinculado (oficiales). |
 | `/calderos-asignar` | Asigna una persona al caldero de un día y tipo (oficiales). |
@@ -357,7 +358,7 @@ Si aparece un error de escritura de SQLite en Docker, comprueba los permisos de 
 | Archivo | Responsabilidad |
 |---|---|
 | `src/index.js` | Arranque, autorización de oficiales, interacciones, auditoría y programación diaria de roles y calderos. |
-| `src/register-commands.js` | Definición y registro de los 13 comandos del servidor. |
+| `src/register-commands.js` | Definición y registro de los 14 comandos del servidor. |
 | `src/raider-promotion.js` | Detección de Recluta → Raider, mensaje de felicitación y entrega sin duplicados. |
 | `src/wow-sync.js` | Blizzard OAuth, roster, búsqueda de personajes, roles y nombres de canales Raider. |
 | `src/database.js` | Esquema, migraciones y persistencia SQLite. |

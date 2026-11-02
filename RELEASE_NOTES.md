@@ -1,5 +1,12 @@
 # Release notes — Whitebird WoW Role Sync
 
+## 2026-11-02 · Roles de combate y avisos por especialización
+
+- Nuevo comando de oficiales `/equipo-comprobar usuario` para revisar en privado encantamientos, gemas y coincidencia de roles. Con `enviar:true`, envía el aviso real al canal Raider mencionando al usuario; sin esa opción solo muestra el diagnóstico.
+
+- La sincronización manual y automática actualiza los roles **Tankes**, **Healers** y **DPS** según el rol de raid del personaje en WoWAudit. Requiere `WOWAUDIT_API_KEY` y un único rol de cada nombre en Discord, situado por debajo del bot. Si no se puede determinar el rol, se conservan los roles actuales y se registra el motivo.
+- Los avisos de encantamientos y gemas solo se comprueban cuando la especialización del equipo guardado en WoWAudit coincide con el rol de raid. Si no coincide o no se puede identificar, se omite el aviso y se registra el motivo; por ejemplo, un healer con especialización Shadow no recibe avisos.
+
 ## 2026-11-01 · Rol conjunto roster
 
 - Añadida sincronización opcional del rol `roster` para mencionar conjuntamente a los miembros vinculados con el rango mínimo de Blizzard configurado o uno superior (`WOW_ROSTER_MIN_RANK`, por defecto 4: incluye del 0 al 4).
