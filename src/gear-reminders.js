@@ -128,7 +128,13 @@ export async function fetchGearReminderMessages(config, links, fetcher = fetch) 
     catch (error) { skipped.push({ name: character.name, reason: error.message }); continue; }
     const actualRole = specializationRole(profile);
     if (profile?.id !== character.id || !actualRole || actualRole !== expectedRole) {
-      skipped.push({ name: character.name, reason: `especialización ausente o distinta del rol de raid (raid: ${expectedRole}; especialización: ${actualRole || 'desconocida'})` });
+      const roleNames = { tank: 'tank', healer: 'healer', dps: 'DPS' };
+      const reason = profile?.id !== character.id
+        ? 'el perfil de WoWAudit no corresponde al personaje'
+        : !actualRole
+          ? 'no se ha podido identificar la especialización del equipo guardado en WoWAudit'
+          : `la especialización del equipo es ${roleNames[actualRole]} y el rol de raid es ${roleNames[expectedRole]}`;
+      skipped.push({ name: character.name, reason });
       continue;
     }
     const gear = profile.details?.gear;
