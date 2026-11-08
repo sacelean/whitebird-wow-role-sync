@@ -76,7 +76,7 @@ export function getWowLinks(guildId) {
 }
 
 export function getWowLink(guildId, userId) {
-  return db.prepare('SELECT character_name, realm_slug FROM wow_links WHERE guild_id = ? AND user_id = ?').get(guildId, userId);
+  return db.prepare('SELECT user_id, character_name, realm_slug, raider_channel_id FROM wow_links WHERE guild_id = ? AND user_id = ?').get(guildId, userId);
 }
 
 export function getPublishedReleaseNote(guildId, releaseId) {

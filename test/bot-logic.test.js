@@ -21,6 +21,7 @@ process.env.WOW_PROFESSION_ROLE_IDS = JSON.stringify({
 });
 
 const {
+  announceRaiderMainChange,
   getWowConfig,
   findGuildRosterCharacter,
   getUnlinkedMappedRosterMembers,
@@ -279,6 +280,45 @@ test('la sincronización renombra el canal Raider según el rol, personaje y rei
   assert.equal(channel.name, 'raider-asherrna-sanguino');
   assert.equal(report.channelsRenamed, 1);
   assert.deepEqual(report.channelDetails, ['raider-antiguo-sanguino → raider-asherrna-sanguino']);
+});
+
+test('cambiar de main renombra el canal asociado y explica el cambio en ese mismo canal', async () => {
+  const { guild } = makeGuild([roleIds.rank2]);
+  const previous = { ...linked, character_name: 'Monknalisa', raider_channel_id: 'raider-channel' };
+  const character = { name: 'Rubênn', realm: 'sanguino' };
+  const events = [];
+  const channel = {
+    id: previous.raider_channel_id,
+    type: 0,
+    name: 'raider-monknalisa-sanguino',
+    setName: async (name) => { events.push(name); channel.name = name; },
+    send: async (payload) => { events.push(payload); }
+  };
+  guild.channels.cache.set(channel.id, channel);
+
+  assert.match(await announceRaiderMainChange(guild, previous, character), /Cambio de main anunciado/);
+  assert.equal(events[0], 'raider-rubenn-sanguino');
+  assert.match(events[1].content, /Monknalisa · sanguino.*Rubênn · sanguino/);
+  assert.match(events[1].content, /#raider-monknalisa-sanguino.*#raider-rubenn-sanguino/);
+  assert.deepEqual(events[1].allowedMentions, { parse: [] });
+
+  await announceRaiderMainChange(guild, { ...previous, character_name: character.name }, character);
+  assert.equal(events.length, 2);
+});
+
+test('distingue un renombrado correcto de un aviso que Discord rechaza', async () => {
+  const { guild } = makeGuild([roleIds.rank2]);
+  const channel = {
+    id: 'raider-channel',
+    type: 0,
+    name: 'raider-monknalisa-sanguino',
+    setName: async (name) => { channel.name = name; },
+    send: async () => { throw new Error('Missing permissions'); }
+  };
+  guild.channels.cache.set(channel.id, channel);
+  const status = await announceRaiderMainChange(guild, { ...linked, raider_channel_id: channel.id }, { name: 'Rubênn', realm: 'sanguino' });
+  assert.equal(channel.name, 'raider-rubenn-sanguino');
+  assert.match(status, /renombrado.*No se pudo publicar el aviso/);
 });
 
 test('encuentra un canal Raider antiguo por nombre y guarda su ID en el vínculo', async (t) => {

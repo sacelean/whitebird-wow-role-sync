@@ -164,11 +164,49 @@ function getChannelPrefix(member, guild, config) {
   return (roleId && guild.roles.cache.get(roleId)?.name) || 'raider';
 }
 
-async function renameRaiderChannel(guild, link, prefix, characterName, realmSlug, saveLink) {
-  const expectedName = getRaiderChannelName(prefix, characterName, realmSlug);
+async function getLinkedRaiderChannel(guild, link) {
   let channel = link.raider_channel_id ? guild.channels.cache.get(link.raider_channel_id) : null;
   if (!channel && link.raider_channel_id) channel = await guild.channels.fetch(link.raider_channel_id).catch(() => null);
-  if (channel?.type !== guildTextChannelType) channel = null;
+  return channel?.type === guildTextChannelType ? channel : null;
+}
+
+async function setRaiderChannelName(channel, expectedName, reason) {
+  if (channel.name === expectedName) return null;
+  const previousName = channel.name;
+  await channel.setName(expectedName, reason);
+  return previousName;
+}
+
+export async function announceRaiderMainChange(guild, previousLink, { name, realm }) {
+  if (!previousLink || (previousLink.character_name === name && previousLink.realm_slug === realm)) return '';
+  let channel;
+  let previousName;
+  let expectedName;
+  try {
+    channel = await getLinkedRaiderChannel(guild, previousLink);
+    if (!channel) return 'No se encontró un canal Raider asociado para renombrar y avisar.';
+    const member = await guild.members.fetch(previousLink.user_id);
+    const prefix = getChannelPrefix(member, guild, getWowConfig());
+    expectedName = getRaiderChannelName(prefix, name, realm);
+    previousName = await setRaiderChannelName(channel, expectedName, 'Cambio del personaje principal vinculado');
+  } catch (error) {
+    return `No se pudo renombrar el canal Raider: ${error.message}`;
+  }
+
+  const rename = previousName ? ` El canal pasa de **#${previousName}** a **#${expectedName}**.` : '';
+  const content = `Se ha cambiado el personaje principal vinculado de **${previousLink.character_name} · ${previousLink.realm_slug}** a **${name} · ${realm}**.${rename}`;
+  try {
+    await channel.send({ content, allowedMentions: { parse: [] } });
+    return `Cambio de main anunciado en <#${channel.id}>.`;
+  } catch (error) {
+    const status = previousName ? `Canal Raider renombrado a **#${expectedName}**.` : 'El canal Raider ya tenía el nombre correcto.';
+    return `${status} No se pudo publicar el aviso: ${error.message}`;
+  }
+}
+
+async function renameRaiderChannel(guild, link, prefix, characterName, realmSlug, saveLink) {
+  const expectedName = getRaiderChannelName(prefix, characterName, realmSlug);
+  let channel = await getLinkedRaiderChannel(guild, link);
   if (!channel) {
     const characterRealmSuffix = `-${cleanChannelName(characterName)}-${cleanChannelName(realmSlug)}`;
     channel = guild.channels.cache.find((item) => item.type === guildTextChannelType && item.name.endsWith(characterRealmSuffix));
@@ -178,12 +216,8 @@ async function renameRaiderChannel(guild, link, prefix, characterName, realmSlug
   if (saveLink && (link.raider_channel_id !== channel.id || link.character_name !== characterName || link.realm_slug !== realmSlug)) {
     saveLink(guild.id, link.user_id, characterName, realmSlug, channel.id);
   }
-  if (channel.name !== expectedName) {
-    const previousName = channel.name;
-    await channel.setName(expectedName, 'Sincronización de nombre del canal personal de Raider');
-    return { channel, previousName };
-  }
-  return { channel, previousName: null };
+  const previousName = await setRaiderChannelName(channel, expectedName, 'Sincronización de nombre del canal personal de Raider');
+  return { channel, previousName };
 }
 
 async function updateRaiderChannelName(guild, link, member, config, report, characterName, realmSlug, saveLink) {

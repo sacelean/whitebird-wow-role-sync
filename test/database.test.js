@@ -22,6 +22,7 @@ const {
   saveRaiderView,
   getCauldronAssignments,
   getCauldronPanel,
+  getWowLink,
   getWowLinks,
   getWowSyncHistory,
   markBisProposalBuilding,
@@ -45,6 +46,7 @@ test('la base conserva el canal Raider al actualizar el vínculo y permite cambi
   saveWowLink('g1', 'u1', 'Main', 'sanguino', 'raider-channel');
   saveWowLink('g1', 'u1', 'Renombrado', 'sanguino');
   assert.deepEqual(getWowLinks('g1'), [{ user_id: 'u1', character_name: 'Renombrado', realm_slug: 'sanguino', raider_channel_id: 'raider-channel' }]);
+  assert.deepEqual(getWowLink('g1', 'u1'), getWowLinks('g1')[0]);
 });
 
 test('guarda una propuesta BIS aceptada con sus objetos; rechazar otra limpia la lista activa', () => {

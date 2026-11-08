@@ -46,10 +46,21 @@ function readAuditCategory(enchantData, name) {
   return result;
 }
 
+function formatGearFindings({ name, realm, enchants, lowQualityEnchants, sockets }) {
+  const lines = [`**${name} · ${realm}**`];
+  if (enchants.size) lines.push(`• Encantamiento ausente: ${[...enchants].map((slot) => slotNames[slot]).join(', ')}.`);
+  if (lowQualityEnchants.size) lines.push(`• Encantamiento de baja calidad: ${[...lowQualityEnchants].map((slot) => slotNames[slot]).join(', ')}.`);
+  if (sockets.size) lines.push(`• Hueco de gema vacío: ${[...sockets].map((slot) => slotNames[slot]).join(', ')}.`);
+  return lines.join('\n');
+}
+
 export function buildGearReminderMessages(team, overview, links) {
   requireSchema(Array.isArray(team?.members), 'team.members');
   requireSchema(overview?.enchantData && typeof overview.enchantData === 'object', 'enchantData');
   const missingEnchants = readAuditCategory(overview.enchantData, 'enchants_missing');
+  const lowQualityEnchants = Object.hasOwn(overview.enchantData, 'enchants_not_bis')
+    ? readAuditCategory(overview.enchantData, 'enchants_not_bis')
+    : new Map();
   const emptySockets = readAuditCategory(overview.enchantData, 'empty_sockets');
 
   const characters = new Map();
@@ -60,7 +71,12 @@ export function buildGearReminderMessages(team, overview, links) {
     const realm = character?.realm?.slug || character?.realm?.name;
     requireSchema(positiveId(id) && typeof name === 'string' && name.length > 0 && typeof realm === 'string' && realm.length > 0, 'team.members.characterReference');
     requireSchema(!characters.has(id), 'team.members.characterReference.id duplicado');
-    characters.set(id, { id, name, realm, enchants: missingEnchants.get(id) || new Set(), sockets: emptySockets.get(id) || new Set() });
+    characters.set(id, {
+      id, name, realm,
+      enchants: missingEnchants.get(id) || new Set(),
+      lowQualityEnchants: lowQualityEnchants.get(id) || new Set(),
+      sockets: emptySockets.get(id) || new Set()
+    });
   }
 
   const linksByIdentity = new Map();
@@ -73,9 +89,13 @@ export function buildGearReminderMessages(team, overview, links) {
 
   const byUser = new Map();
   const unlinked = [];
-  for (const id of new Set([...missingEnchants.keys(), ...emptySockets.keys()])) {
+  const findings = [];
+  for (const id of new Set([...missingEnchants.keys(), ...lowQualityEnchants.keys(), ...emptySockets.keys()])) {
     const character = characters.get(id);
     requireSchema(character, `personaje ${id} de overview_data ausente en team.members`);
+    if (!character.enchants.size && !character.lowQualityEnchants.size && !character.sockets.size) continue;
+    const content = formatGearFindings(character);
+    findings.push(content);
     const matches = linksByIdentity.get(identity(character.name, character.realm)) || [];
     if (matches.length !== 1) {
       unlinked.push({ name: character.name, realm: character.realm, ambiguous: matches.length > 1 });
@@ -88,20 +108,18 @@ export function buildGearReminderMessages(team, overview, links) {
     }
     const recipientKey = `${channelId}:${userId}`;
     const recipient = byUser.get(recipientKey) || { userId, channelId, characters: [] };
-    recipient.characters.push(character);
+    recipient.characters.push({ ...character, content });
     byUser.set(recipientKey, recipient);
   }
 
   const messages = [...byUser.values()].map(({ userId, channelId, characters: affected }) => {
     const lines = [`<@${userId}> Según la auditoría de equipo de WoWAudit, revisa estas piezas por si se te pasó mejorarlas:`];
     for (const character of affected.sort((a, b) => identity(a.name, a.realm).localeCompare(identity(b.name, b.realm), 'en'))) {
-      lines.push('', `**${character.name} · ${character.realm}**`);
-      if (character.enchants.size) lines.push(`• Encantamiento ausente: ${[...character.enchants].map((slot) => slotNames[slot]).join(', ')}.`);
-      if (character.sockets.size) lines.push(`• Hueco de gema vacío: ${[...character.sockets].map((slot) => slotNames[slot]).join(', ')}.`);
+      lines.push('', character.content);
     }
     return { userId, channelId, content: lines.join('\n') };
   });
-  return { messages, unlinked };
+  return { findings, messages, unlinked };
 }
 
 export async function fetchGearReminderMessages(config, links, fetcher = fetch) {
@@ -109,10 +127,13 @@ export async function fetchGearReminderMessages(config, links, fetcher = fetch) 
   const team = { members: [] };
   const overview = { enchantData: {
     enchants_missing: { total: 0, characters: [] },
+    enchants_not_bis: { total: 0, characters: [] },
     empty_sockets: { total: 0, characters: [] }
   } };
   const skipped = [];
   const checked = [];
+  const qualityWarnings = [];
+  let qualityAudit;
   const seen = new Set();
   for (const link of links) {
     const character = findAuditCharacter(roster, link.character_name, link.realm_slug);
@@ -142,7 +163,7 @@ export async function fetchGearReminderMessages(config, links, fetcher = fetch) 
       skipped.push({ name: character.name, reason: 'equipo auditado no disponible' });
       continue;
     }
-    // Use the gear returned alongside currentSpec, avoiding a second snapshot from overview_data.
+    // Check missing enchants and sockets on the same snapshot as currentSpec.
     const missing = [];
     const empty = [];
     for (const [slot, item] of Object.entries(gear)) {
@@ -154,24 +175,40 @@ export async function fetchGearReminderMessages(config, links, fetcher = fetch) 
         if (!socket.gem) empty.push(slot);
       }
     }
+    let lowQuality = [];
+    const lowQualityCount = profile.details.gearStatus?.enchants_not_bis;
+    if (positiveId(lowQualityCount)) {
+      try {
+        // The profile gives a count, while the team audit identifies the affected slots.
+        qualityAudit ??= auditGet(`/api/teams/${config.teamId}/overview_data`, config.apiKey, fetcher)
+          .then((data) => readAuditCategory(data?.enchantData, 'enchants_not_bis'));
+        const slots = (await qualityAudit).get(character.id) || new Set();
+        requireSchema(slots.size === lowQualityCount && [...slots].every((slot) =>
+          gear[slot]?.enchant?.missing === false), 'enchants_not_bis no coincide con el perfil');
+        lowQuality = [...slots];
+      } catch (error) {
+        qualityWarnings.push({ name: character.name, reason: error.message });
+      }
+    }
     checked.push({ name: character.name, role: expectedRole, specializationRole: actualRole });
     team.members.push({ characterReference: { id: character.id, name: character.name, realm: { slug: character.realm } } });
-    for (const [category, slots] of [['enchants_missing', missing], ['empty_sockets', empty]]) {
+    for (const [category, slots] of [['enchants_missing', missing], ['enchants_not_bis', lowQuality], ['empty_sockets', empty]]) {
       overview.enchantData[category].characters.push({ id: character.id, slots });
       overview.enchantData[category].total += slots.length;
     }
   }
   // Empty categories must not create recipients without actual gear issues.
   for (const category of Object.values(overview.enchantData)) category.characters = category.characters.filter(entry => entry.slots.length);
-  return { ...buildGearReminderMessages(team, overview, links), skipped, checked };
+  return { ...buildGearReminderMessages(team, overview, links), skipped, checked, qualityWarnings };
 }
 
 export async function sendGearReminders(guild, config, links, fetcher = fetch) {
   return sendPreparedGearReminders(guild, await fetchGearReminderMessages(config, links, fetcher));
 }
 
-export async function sendPreparedGearReminders(guild, { messages, unlinked, skipped }) {
+export async function sendPreparedGearReminders(guild, { messages, unlinked, skipped, qualityWarnings = [] }) {
   for (const character of skipped) console.warn(`Aviso WoWAudit omitido para ${character.name}: ${character.reason}.`);
+  for (const character of qualityWarnings) console.warn(`Calidad de encantamientos sin verificar para ${character.name}: ${character.reason}`);
   for (const character of unlinked) {
     const reason = character.ambiguous ? 'vinculación ambigua' : character.missingChannel ? 'sin canal Raider asociado' : 'sin vínculo de Discord';
     console.warn(`Aviso WoWAudit omitido para ${character.name} · ${character.realm}: ${reason}.`);

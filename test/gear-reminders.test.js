@@ -76,6 +76,8 @@ test('publica el aviso en el canal Raider asociado y menciona al usuario', async
   assert.equal(result.failed, 0);
   assert.equal(sent.length, 1);
   assert.match(sent[0].content, /<@discord-1>/);
+  assert.match(sent[0].content, /Encantamiento ausente: cabeza/);
+  assert.match(sent[0].content, /Hueco de gema vacío: cabeza/);
   assert.deepEqual(sent[0].allowedMentions, { users: ['discord-1'] });
 });
 
@@ -85,6 +87,7 @@ for (const [expected, actual, sends] of [['Healer', 'ranged', false], ['Healer',
     const fetcher = async url => ({ ok: true, json: async () => url.endsWith('/v1/characters') ? [{ ...roster[0], role: expected }] : profile(11, actual) });
     const result = await fetchGearReminderMessages({ apiKey: 'secret' }, links, fetcher);
     assert.equal(result.messages.length, sends ? 1 : 0);
+    assert.equal(result.findings.length, sends ? 1 : 0);
     assert.equal(result.skipped.length, sends ? 0 : 1);
   });
 }
@@ -105,7 +108,81 @@ test('diagnóstico distingue equipo correcto de una comprobación omitida sin en
     { user_id: 'u', character_name: 'RaiderA', realm_slug: 'zuljin', raider_channel_id: 'c' }
   ], fetcher);
   assert.deepEqual(result.checked, [{ name: 'RaiderA', role: 'healer', specializationRole: 'healer' }]);
+  assert.deepEqual(result.findings, []);
   assert.equal(result.messages.length, 0);
   assert.equal(result.skipped.length, 0);
   assert.equal(result.unlinked.length, 0);
+});
+
+test('el diagnóstico muestra encantamientos y gemas aunque falte el canal Raider', async () => {
+  const character = profile(11);
+  character.details.gear = {
+    head: { enchant: { name: '', quality: 0, id: null, missing: true }, sockets: [] },
+    chest: { enchant: { id: 8013, missing: false }, sockets: [] },
+    neck: { enchant: null, sockets: [{ gem: 240983 }] },
+    waist: { enchant: null, sockets: [{ gem: null }, { gem: null }] }
+  };
+  const links = [{ user_id: 'u', character_name: 'RaiderA', realm_slug: 'zuljin', raider_channel_id: null }];
+  const fetcher = async url => ({ ok: true, json: async () => url.endsWith('/v1/characters') ? roster : character });
+  const result = await fetchGearReminderMessages({ apiKey: 'secret' }, links, fetcher);
+
+  assert.deepEqual(result.findings, [
+    '**RaiderA · zuljin**\n• Encantamiento ausente: cabeza.\n• Hueco de gema vacío: cintura.'
+  ]);
+  assert.deepEqual(result.messages, []);
+  assert.equal(result.unlinked[0].missingChannel, true);
+});
+
+test('avisa de la baja calidad en hombros aunque no falten encantamientos ni gemas', async () => {
+  const character = profile(11);
+  character.details = {
+    gearStatus: { enchants_missing: 0, enchants_not_bis: 1 },
+    gear: {
+      shoulder: { enchant: { name: 'Flight of the Eagle (2)', id: 7971, quality: 2, missing: false }, sockets: [] },
+      head: { enchant: { id: 8013, quality: 4, missing: false }, sockets: [{ gem: 240983 }] }
+    }
+  };
+  const audit = { enchantData: { enchants_not_bis: { total: 1, characters: [{ id: 11, slots: ['shoulder'] }] } } };
+  const responses = {
+    '/v1/characters': roster,
+    '/api/characters/11': character,
+    '/api/teams/66082/overview_data': audit
+  };
+  const requests = [];
+  const fetcher = async url => {
+    const path = new URL(url).pathname;
+    requests.push(path);
+    return { ok: true, json: async () => responses[path] };
+  };
+  const link = { user_id: 'u', character_name: 'RaiderA', realm_slug: 'zuljin', raider_channel_id: 'c' };
+  const config = { apiKey: 'secret', teamId: 66082 };
+  const result = await fetchGearReminderMessages(config, [link], fetcher);
+  assert.deepEqual(requests, Object.keys(responses));
+  assert.deepEqual(result.qualityWarnings, []);
+  assert.deepEqual(result.findings, ['**RaiderA · zuljin**\n• Encantamiento de baja calidad: hombros.']);
+  assert.ok(result.messages[0].content.endsWith(result.findings[0]));
+
+  const noChannel = await fetchGearReminderMessages(config, [{ ...link, raider_channel_id: null }], fetcher);
+  assert.deepEqual(noChannel.findings, result.findings);
+  assert.deepEqual(noChannel.messages, []);
+});
+
+test('una discrepancia en calidad conserva los avisos de encantamientos ausentes y gemas', async () => {
+  const character = profile(11);
+  character.details.gearStatus = { enchants_not_bis: 1 };
+  const audit = { enchantData: { enchants_not_bis: { total: 1, characters: [{ id: 11, slots: ['head'] }] } } };
+  const responses = {
+    '/v1/characters': roster,
+    '/api/characters/11': character,
+    '/api/teams/66082/overview_data': audit
+  };
+  const fetcher = async url => ({ ok: true, json: async () => responses[new URL(url).pathname] });
+  const result = await fetchGearReminderMessages({ apiKey: 'secret', teamId: 66082 }, [
+    { user_id: 'u', character_name: 'RaiderA', realm_slug: 'zuljin', raider_channel_id: 'c' }
+  ], fetcher);
+  assert.deepEqual(result.findings, [
+    '**RaiderA · zuljin**\n• Encantamiento ausente: cabeza.\n• Hueco de gema vacío: cabeza.'
+  ]);
+  assert.equal(result.qualityWarnings.length, 1);
+  assert.match(result.qualityWarnings[0].reason, /no coincide con el perfil/);
 });

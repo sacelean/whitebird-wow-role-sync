@@ -38,6 +38,7 @@ import {
   setRaiderDestination,
   getCauldronAssignments,
   getCauldronPanel,
+  getWowLink,
   getWowLinks,
   getWowSyncHistory,
   removeWowLink,
@@ -48,6 +49,7 @@ import {
   setCauldronPanel
 } from './database.js';
 import {
+  announceRaiderMainChange,
   fetchGuildRoster,
   getUnlinkedMappedRosterMembers,
   getWowConfig,
@@ -74,6 +76,7 @@ const officerReportChannelId = (process.env.OFFICER_REPORT_CHANNEL_ID || '').tri
 const releaseNotesChannelId = (process.env.RELEASE_NOTES_CHANNEL_ID || '').trim();
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 const pendingWowLinks = new Map();
+const wowLinkUpdates = new Map();
 const weekdays = [
   ['monday', 'Lunes'], ['tuesday', 'Martes'], ['wednesday', 'Miércoles'], ['thursday', 'Jueves']
 ];
@@ -409,6 +412,23 @@ async function autoLink(interaction) {
   });
 }
 
+async function assignWowMain(guild, userId, character) {
+  const key = `${guild.id}:${userId}`;
+  const previousUpdate = wowLinkUpdates.get(key);
+  const update = (async () => {
+    await previousUpdate?.catch(() => {});
+    const previousLink = getWowLink(guild.id, userId);
+    saveWowLink(guild.id, userId, character.name, character.realm);
+    return announceRaiderMainChange(guild, previousLink, character);
+  })();
+  wowLinkUpdates.set(key, update);
+  try {
+    return await update;
+  } finally {
+    if (wowLinkUpdates.get(key) === update) wowLinkUpdates.delete(key);
+  }
+}
+
 async function handleLinkComponent(interaction) {
   const [action, nonce] = interaction.customId.replace('wow-link-', '').split(':');
   const pending = pendingWowLinks.get(nonce);
@@ -433,13 +453,14 @@ async function handleLinkComponent(interaction) {
     return interaction.update({ content: 'Vinculación cancelada; no se ha guardado ningún cambio.', components: [] });
   }
   if (action === 'confirm' && pending.character) {
+    pendingWowLinks.delete(nonce);
+    await interaction.deferUpdate();
     try {
-      saveWowLink(pending.guildId, pending.userId, pending.character.name, pending.character.realm);
-      pendingWowLinks.delete(nonce);
-      return interaction.update({ content: `Vinculado **${pending.character.name}** · **${pending.character.realm}** como tu main.`, components: [] });
+      const channelStatus = await assignWowMain(interaction.guild, pending.userId, pending.character);
+      const content = [`Vinculado **${pending.character.name}** · **${pending.character.realm}** como tu main.`, channelStatus].filter(Boolean).join('\n');
+      return interaction.editReply({ content, components: [], allowedMentions: { parse: [] } });
     } catch {
-      pendingWowLinks.delete(nonce);
-      return interaction.update({ content: 'No se pudo guardar. Puede que ese personaje ya esté vinculado a otra persona; pide a un oficial que lo revise.', components: [] });
+      return interaction.editReply({ content: 'No se pudo guardar. Puede que ese personaje ya esté vinculado a otra persona; pide a un oficial que lo revise.', components: [] });
     }
   }
   return interaction.update({ content: 'La propuesta ya no está disponible. Ejecuta `/vinculacion-buscar` para empezar de nuevo.', components: [] });
@@ -776,8 +797,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
       for (const entry of result.checked) lines.push(`Rol de raid: ${entry.role}. Especialización: ${entry.specializationRole}. Coinciden.`);
       for (const entry of result.skipped) lines.push(`Comprobación omitida: ${entry.reason}.`);
       for (const entry of result.unlinked) lines.push(`Aviso omitido: ${entry.missingChannel ? 'sin canal Raider asociado' : 'vinculación ausente o ambigua'}.`);
-      if (result.checked.length && !result.messages.length && !result.unlinked.length) lines.push('Sin encantamientos ausentes ni huecos de gema vacíos.');
-      for (const message of result.messages) lines.push('', message.content);
+      for (const entry of result.qualityWarnings) lines.push(`Calidad de encantamientos sin verificar: ${entry.reason}`);
+      if (result.checked.length && !result.findings.length && !result.qualityWarnings.length) lines.push('Sin encantamientos ausentes o de baja calidad ni huecos de gema vacíos.');
+      for (const finding of result.findings) lines.push('', finding);
       if (interaction.options.getBoolean('enviar') === true) {
         const delivery = await sendPreparedGearReminders(interaction.guild, result);
         lines.push(`Envío al canal Raider: ${delivery.sent} enviados · ${delivery.failed} fallidos.`);
@@ -876,8 +898,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const roster = await fetchGuildRoster();
       const match = findGuildRosterCharacter(roster, name, realm);
       if (!match) return interaction.editReply(`No encuentro **${name}** · **${realm}** en el roster de la guild de Blizzard.`);
-      saveWowLink(guildId, target.id, match.name, match.realm);
-      return interaction.editReply(`Vinculado **${match.name}** · **${match.realm}** con <@${target.id}>.`);
+      const channelStatus = await assignWowMain(interaction.guild, target.id, match);
+      const content = [`Vinculado **${match.name}** · **${match.realm}** con <@${target.id}>.`, channelStatus].filter(Boolean).join('\n');
+      return interaction.editReply({ content, allowedMentions: { parse: [] } });
     }
 
     if (interaction.commandName === 'vinculacion-quitar') {
