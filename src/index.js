@@ -55,6 +55,7 @@ import {
   getWowConfig,
   findGuildRosterCharacter,
   rankGuildRosterCandidates,
+  removeRosterCombatRoles,
   synchronizeWowRoles,
 } from './wow-sync.js';
 import {
@@ -907,14 +908,19 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (!isOfficer(interaction)) return interaction.reply(unauthorizedReply());
       const target = interaction.options.getUser('usuario', true);
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-      const rosterRoleId = (process.env.WOW_ROSTER_ROLE_ID || '').trim() ? getWowConfig().rosterRoleId : null;
-      if (rosterRoleId) {
+      if (process.env.WOW_ROSTER_ROLE_ID?.trim()) {
+        const config = getWowConfig();
         const member = await interaction.guild.members.fetch(target.id).catch(error => {
           if (Number(error.code) === 10007) return null;
           throw error;
         });
-        if (member?.roles.cache.has(rosterRoleId)) {
-          await member.roles.remove(rosterRoleId, 'Vinculación WoW retirada: deja de pertenecer a roster');
+        if (member?.roles.cache.has(config.rosterRoleId)) {
+          try {
+            await removeRosterCombatRoles(member, config);
+            await member.roles.remove(config.rosterRoleId, 'Vinculación WoW retirada: deja de pertenecer a roster');
+          } catch (error) {
+            return interaction.editReply(`No se quitó la vinculación. No se pudieron retirar todos los roles: ${error.message}`);
+          }
         }
       }
       const removed = removeWowLink(guildId, target.id);

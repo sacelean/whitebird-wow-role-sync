@@ -431,23 +431,29 @@ test('un fallo del aviso de ascenso no detiene las profesiones ni la sincronizac
 
 test('roster usa el umbral de Blizzard, independientemente del nombre y mapeo del rol', async (t) => {
   const rosterId = '100000000000099';
-  const previous = [process.env.WOW_ROSTER_ROLE_ID, process.env.WOW_ROSTER_MIN_RANK];
+  const keys = ['WOW_ROSTER_ROLE_ID', 'WOW_ROSTER_MIN_RANK', 'WOWAUDIT_API_KEY'];
+  const previous = keys.map(key => process.env[key]);
   process.env.WOW_ROSTER_ROLE_ID = rosterId;
   process.env.WOW_ROSTER_MIN_RANK = '4';
+  process.env.WOWAUDIT_API_KEY = 'test-audit';
   t.after(() => {
-    ['WOW_ROSTER_ROLE_ID', 'WOW_ROSTER_MIN_RANK'].forEach((key, i) => {
+    keys.forEach((key, i) => {
       if (previous[i] === undefined) delete process.env[key]; else process.env[key] = previous[i];
     });
   });
   let selectedRoster;
   t.mock.method(globalThis, 'fetch', async input => {
     const url = String(input);
+    if (url.endsWith('/v1/characters')) return blizzardResponse([{ id: 1, name: 'Asherrna', realm: 'sanguino', role: 'Ranged' }]);
     if (url.includes('/roster')) return blizzardResponse(selectedRoster);
     if (url.includes('/professions')) return blizzardResponse({ primaries: [] });
     return blizzardResponse({ access_token: 'test-token', expires_in: 3600 });
   });
   const { guild, member, roles } = makeGuild([roleIds.rank2]);
   roles.set(rosterId, { id: rosterId, name: 'roster', position: 6, managed: false });
+  for (const [id, name] of [['tank', 'Tankes'], ['heal', 'Healers'], ['dps', 'DPS']]) {
+    roles.set(id, { id, name, position: 6, managed: false });
+  }
   roles.get(roleIds.rank2).name = 'Social';
   selectedRoster = rosterWith('Asherrna', 2);
   await synchronizeWowRoles(guild, []);
@@ -457,6 +463,8 @@ test('roster usa el umbral de Blizzard, independientemente del nombre y mapeo de
     const hadRoster = member.roles.cache.has(rosterId);
     const report = await synchronizeWowRoles(guild, [linked]);
     assert.equal(member.roles.cache.has(rosterId), rank <= 4);
+    assert.equal(member.roles.cache.has('dps'), rank <= 4);
+    if (rank === 5) assert.ok(report.roleChanges.some(change => change.roleId === 'dps' && change.category === 'combate' && change.action === 'removed'));
     assert.equal(report.roleChanges.some(change => change.roleId === rosterId && change.category === 'roster'), hadRoster !== (rank <= 4));
     const unchanged = await synchronizeWowRoles(guild, [linked]);
     assert.equal(unchanged.roleChanges.length, 0);
@@ -467,9 +475,11 @@ test('roster usa el umbral de Blizzard, independientemente del nombre y mapeo de
   selectedRoster = rosterWith('Asherrna', 0);
   await synchronizeWowRoles(guild, [linked]);
   assert.equal(member.roles.cache.has(rosterId), true);
+  delete process.env.WOWAUDIT_API_KEY;
   selectedRoster = { members: [] };
   await synchronizeWowRoles(guild, [linked]);
   assert.equal(member.roles.cache.has(rosterId), false);
+  assert.equal(member.roles.cache.has('dps'), false);
   delete process.env.WOW_ROSTER_MIN_RANK;
   assert.equal(getWowConfig().rosterMinRank, 4);
   for (const invalid of ['', '-1', '1.5', 'abc', '9007199254740992']) {

@@ -58,10 +58,13 @@ export async function fetchCombatRoster(apiKey, fetcher = fetch) {
   return roster;
 }
 
-export function resolveCombatRoles(guild) {
+const combatRoleNames = { tank: 'Tankes', healer: 'Healers', dps: 'DPS' };
+
+export function resolveCombatRoles(guild, { allowMissing = false } = {}) {
   const result = {};
-  for (const [key, name] of Object.entries({ tank: 'Tankes', healer: 'Healers', dps: 'DPS' })) {
+  for (const [key, name] of Object.entries(combatRoleNames)) {
     const matches = [...guild.roles.cache.values()].filter(role => role.name.toLowerCase() === name.toLowerCase());
+    if (allowMissing && !matches.length) continue;
     if (matches.length !== 1) throw new Error(`Debe existir un único rol de Discord llamado ${name}.`);
     result[key] = matches[0].id;
   }
