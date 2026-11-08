@@ -1,5 +1,12 @@
 # Release notes — Whitebird WoW Role Sync
 
+## 2026-11-08 · Auditoría de equipo, cambios de main y roles de roster
+
+- Los avisos de equipo incluyen los encantamientos de baja calidad detectados por WoWAudit, indicando las piezas afectadas. Si no se pueden verificar, se informa del problema y se mantienen los avisos de encantamientos ausentes y huecos de gema vacíos.
+- `/equipo-comprobar` muestra las incidencias en el diagnóstico privado incluso cuando el usuario no tiene un canal Raider asociado.
+- Al cambiar el main de una cuenta vinculada, el bot renombra de inmediato su canal Raider y publica allí el personaje anterior, el nuevo y el cambio de nombre del canal. Si hay problemas con el canal o sus permisos, los indica en la respuesta privada.
+- Al salir de la guild o dejar de cumplir el rango requerido para el rol `roster`, la sincronización retira también los roles de combate gestionables (**Tankes**, **Healers** y **DPS**), aunque WoWAudit no esté disponible. `/vinculacion-quitar` también los retira cuando elimina el rol de roster.
+
 ## 2026-11-02 · Roles de combate y avisos por especialización
 
 - Nuevo comando de oficiales `/equipo-comprobar usuario` para revisar en privado encantamientos, gemas y coincidencia de roles. Con `enviar:true`, envía el aviso real al canal Raider mencionando al usuario; sin esa opción solo muestra el diagnóstico.
