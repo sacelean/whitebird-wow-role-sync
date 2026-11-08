@@ -25,9 +25,6 @@ const commands = [
       { name: 'General', value: 'overall' }, { name: 'Raid', value: 'raid' }, { name: 'Mítico+', value: 'mythic_plus' }
     )),
   new SlashCommandBuilder()
-    .setName('vinculacion-buscar')
-    .setDescription('Busca tu main de WoW comparando tu nombre con el roster de Blizzard'),
-  new SlashCommandBuilder()
     .setName('vinculacion-asignar')
     .setDescription('Vincula un usuario de Discord con su personaje main (oficiales)')
     .addUserOption((option) => option.setName('usuario').setDescription('Miembro de Discord').setRequired(true))
@@ -54,7 +51,7 @@ const commands = [
     .addIntegerOption((option) => option.setName('limite').setDescription('Número de cambios (1–25)').setMinValue(1).setMaxValue(25).setRequired(false)),
   new SlashCommandBuilder()
     .setName('vinculacion-listar')
-    .setDescription('Muestra vinculaciones guardadas y propuestas pendientes (oficiales)'),
+    .setDescription('Muestra vinculaciones guardadas y personajes sin vincular (oficiales)'),
   new SlashCommandBuilder()
     .setName('calderos-asignar')
     .setDescription('Cambia quién lleva cada caldero y actualiza el reparto público (oficiales)')

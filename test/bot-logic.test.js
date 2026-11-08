@@ -25,7 +25,6 @@ const {
   getWowConfig,
   findGuildRosterCharacter,
   getUnlinkedMappedRosterMembers,
-  rankGuildRosterCandidates,
   synchronizeWowRoles
 } = await import('../src/wow-sync.js');
 const { renderCauldronSchedule, updateCauldronPanel } = await import('../src/cauldron-panel.js');
@@ -209,16 +208,6 @@ test('vinculación manual respeta los acentos del roster y excluye los ya vincul
   assert.deepEqual(getUnlinkedMappedRosterMembers(roster, [{ character_name: 'Agô', realm_slug: 'zuljin' }], { 0: roleIds.rank0, 2: roleIds.rank2 }), [
     { name: 'Agó', realm: 'sanguino', rank: 2 }
   ]);
-});
-
-test('búsqueda aproximada no mezcla nombres que solo difieren en acentos', () => {
-  const ranked = rankGuildRosterCandidates({ members: [
-    { character: { name: 'Agô', realm: { slug: 'zuljin' } } },
-    { character: { name: 'Agó', realm: { slug: 'sanguino' } } }
-  ] }, ['Ago']);
-
-  assert.ok(ranked[0].score < 0.62, 'una diferencia de acento no debe bastar para proponer una vinculación');
-  assert.equal(ranked.length, 2);
 });
 
 test('panel muestra una mención de rol real y las asignaciones del día', () => {

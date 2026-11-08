@@ -54,7 +54,6 @@ import {
   getUnlinkedMappedRosterMembers,
   getWowConfig,
   findGuildRosterCharacter,
-  rankGuildRosterCandidates,
   removeRosterCombatRoles,
   synchronizeWowRoles,
 } from './wow-sync.js';
@@ -76,7 +75,6 @@ const officerRoleIds = new Set((process.env.OFFICER_ROLE_IDS || '').split(',').m
 const officerReportChannelId = (process.env.OFFICER_REPORT_CHANNEL_ID || '').trim();
 const releaseNotesChannelId = (process.env.RELEASE_NOTES_CHANNEL_ID || '').trim();
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
-const pendingWowLinks = new Map();
 const wowLinkUpdates = new Map();
 const weekdays = [
   ['monday', 'Lunes'], ['tuesday', 'Martes'], ['wednesday', 'Miércoles'], ['thursday', 'Jueves']
@@ -93,13 +91,6 @@ function unauthorizedReply() {
     content: 'Este comando está reservado a oficiales (permiso **Gestionar servidor** o un rol de `OFFICER_ROLE_IDS`).',
     flags: MessageFlags.Ephemeral
   };
-}
-
-function confirmationRow(nonce) {
-  return new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`wow-link-confirm:${nonce}`).setLabel('Confirmar como mi main').setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId(`wow-link-cancel:${nonce}`).setLabel('Cancelar').setStyle(ButtonStyle.Secondary)
-  );
 }
 
 function bisSpecRow(proposalId, specs) {
@@ -364,55 +355,6 @@ async function handleBisComponent(interaction) {
   });
 }
 
-function matchOptions(candidates) {
-  return new StringSelectMenuBuilder()
-    .setCustomId(`wow-link-choose:${candidates.nonce}`)
-    .setPlaceholder('Elige tu main del roster de Blizzard')
-    .setMinValues(1)
-    .setMaxValues(1)
-    .addOptions(candidates.items.map((candidate, index) => ({
-      label: `${candidate.name} · ${candidate.realm}`.slice(0, 100),
-      description: `Parecido con tu nombre: ${Math.round(candidate.score * 100)}%`.slice(0, 100),
-      value: String(index)
-    })));
-}
-
-async function autoLink(interaction) {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-  const roster = await fetchGuildRoster();
-  const member = await interaction.guild.members.fetch(interaction.user.id);
-  const ranked = rankGuildRosterCandidates(roster, [member.displayName, interaction.user.globalName, interaction.user.username]);
-  const best = ranked[0];
-  if (!best || best.score < 0.62) {
-    return interaction.editReply('No encuentro una coincidencia clara con tu nombre. Pide a un oficial que use `/vinculacion-asignar usuario personaje reino`.');
-  }
-
-  const nonce = randomUUID();
-  const closeMatches = ranked.filter((candidate) => candidate.score >= Math.max(0.62, best.score - 0.12)).slice(0, 25);
-  const pending = {
-    guildId: interaction.guildId,
-    userId: interaction.user.id,
-    candidates: closeMatches,
-    character: null,
-    expiresAt: Date.now() + 5 * 60_000
-  };
-  pendingWowLinks.set(nonce, pending);
-  for (const [key, value] of pendingWowLinks) if (value.expiresAt <= Date.now()) pendingWowLinks.delete(key);
-
-  if (closeMatches.length === 1 && best.score >= 0.70) {
-    pending.character = best;
-    return interaction.editReply({
-      content: `La coincidencia más clara es **${best.name}** · **${best.realm}** (${Math.round(best.score * 100)}%). Confirma que es tu main para vincularlo.`,
-      components: [confirmationRow(nonce)]
-    });
-  }
-
-  return interaction.editReply({
-    content: 'Hay varias coincidencias posibles. Elige tu main y confirma en el siguiente paso; no se guarda nada antes de confirmar.',
-    components: [new ActionRowBuilder().addComponents(matchOptions({ nonce, items: closeMatches }))]
-  });
-}
-
 async function assignWowMain(guild, userId, character) {
   const key = `${guild.id}:${userId}`;
   const previousUpdate = wowLinkUpdates.get(key);
@@ -430,43 +372,6 @@ async function assignWowMain(guild, userId, character) {
   }
 }
 
-async function handleLinkComponent(interaction) {
-  const [action, nonce] = interaction.customId.replace('wow-link-', '').split(':');
-  const pending = pendingWowLinks.get(nonce);
-  if (!pending || pending.expiresAt <= Date.now()) {
-    pendingWowLinks.delete(nonce);
-    return interaction.update({ content: 'Esta propuesta ha caducado. Ejecuta `/vinculacion-buscar` para buscar de nuevo.', components: [] });
-  }
-  if (interaction.user.id !== pending.userId || interaction.guildId !== pending.guildId) {
-    return interaction.reply({ content: 'Solo la persona que inició la búsqueda puede confirmar esta vinculación.', flags: MessageFlags.Ephemeral });
-  }
-  if (interaction.isStringSelectMenu()) {
-    const candidate = pending.candidates[Number(interaction.values[0])];
-    if (!candidate) return interaction.update({ content: 'No reconozco esa opción. Ejecuta `/vinculacion-buscar` otra vez.', components: [] });
-    pending.character = candidate;
-    return interaction.update({
-      content: `¿Confirmas **${candidate.name}** · **${candidate.realm}** como tu main?`,
-      components: [confirmationRow(nonce)]
-    });
-  }
-  if (action === 'cancel') {
-    pendingWowLinks.delete(nonce);
-    return interaction.update({ content: 'Vinculación cancelada; no se ha guardado ningún cambio.', components: [] });
-  }
-  if (action === 'confirm' && pending.character) {
-    pendingWowLinks.delete(nonce);
-    await interaction.deferUpdate();
-    try {
-      const channelStatus = await assignWowMain(interaction.guild, pending.userId, pending.character);
-      const content = [`Vinculado **${pending.character.name}** · **${pending.character.realm}** como tu main.`, channelStatus].filter(Boolean).join('\n');
-      return interaction.editReply({ content, components: [], allowedMentions: { parse: [] } });
-    } catch {
-      return interaction.editReply({ content: 'No se pudo guardar. Puede que ese personaje ya esté vinculado a otra persona; pide a un oficial que lo revise.', components: [] });
-    }
-  }
-  return interaction.update({ content: 'La propuesta ya no está disponible. Ejecuta `/vinculacion-buscar` para empezar de nuevo.', components: [] });
-}
-
 async function runSync(guild, selectedLinks = null) {
   const linked = selectedLinks || getWowLinks(guild.id);
   if (!linked.length) return { synced: 0, skipped: [] };
@@ -479,12 +384,6 @@ async function runSync(guild, selectedLinks = null) {
 
 async function buildLinkReport(guild) {
   const linked = getWowLinks(guild.id);
-  const pending = [...pendingWowLinks.entries()]
-    .filter(([, item]) => item.guildId === guild.id && item.expiresAt > Date.now());
-  for (const [nonce, item] of pendingWowLinks) {
-    if (item.expiresAt <= Date.now()) pendingWowLinks.delete(nonce);
-  }
-
   const config = getWowConfig();
   const roster = await fetchGuildRoster();
   const unlinkedMapped = getUnlinkedMappedRosterMembers(roster, linked, config.rankRoles);
@@ -524,13 +423,6 @@ async function buildLinkReport(guild) {
   lines.push(...(unlinkedMapped.length
     ? unlinkedMapped.map((character) => `• **${character.name}** · ${character.realm} — rango ${character.rank}`)
     : ['• Todos los personajes con rango mapeado están vinculados.']));
-  lines.push('', `**Pendientes de confirmación (${pending.length})**`);
-  lines.push(...(pending.length
-    ? pending.map(([, item]) => item.character
-      ? `• <@${item.userId}> — debe confirmar **${item.character.name}** · ${item.character.realm}`
-      : `• <@${item.userId}> — debe elegir entre ${item.candidates.length} personajes`)
-    : ['• No hay propuestas pendientes.']));
-  lines.push('', '_Las propuestas pendientes duran 5 minutos y desaparecen si se reinicia el bot._');
   return lines;
 }
 
@@ -776,9 +668,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
       return;
     }
-    const isLinkComponent = (interaction.isStringSelectMenu() && interaction.customId.startsWith('wow-link-choose:')) ||
-      (interaction.isButton() && interaction.customId.startsWith('wow-link-'));
-    if (isLinkComponent) return await handleLinkComponent(interaction);
     if ((interaction.isStringSelectMenu() || interaction.isButton() || interaction.isModalSubmit()) && interaction.customId.startsWith('wow-bis-')) return await handleBisComponent(interaction);
     if (!interaction.isChatInputCommand()) return;
     if (interaction.guildId !== guildId) {
@@ -889,7 +778,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
     }
 
-    if (interaction.commandName === 'vinculacion-buscar') return await autoLink(interaction);
     if (interaction.commandName === 'vinculacion-asignar') {
       if (!isOfficer(interaction)) return interaction.reply(unauthorizedReply());
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });

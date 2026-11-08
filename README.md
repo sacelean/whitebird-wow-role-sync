@@ -24,10 +24,9 @@ Funciona para un único servidor de Discord (`DISCORD_GUILD_ID`) y guarda su est
 
 ## Flujo
 
-1. Cada miembro usa `/vinculacion-buscar` para encontrar su main en el roster de Blizzard y confirmar el vínculo.
-2. Si no hay una coincidencia clara, un oficial asigna el main con `/vinculacion-asignar`.
-3. La sincronización de roles se ejecuta automáticamente a las 4:00; un oficial también puede iniciarla con `/sincronizacion-ejecutar` o limitarla a una persona con `/sincronizacion-usuario`.
-4. Los oficiales gestionan vínculos, auditan el estado y consultan el historial con los comandos de la tabla.
+1. Un oficial vincula el main de cada miembro con `/vinculacion-asignar`.
+2. La sincronización de roles se ejecuta automáticamente a las 4:00; un oficial también puede iniciarla con `/sincronizacion-ejecutar` o limitarla a una persona con `/sincronizacion-usuario`.
+3. Los oficiales gestionan vínculos, auditan el estado y consultan el historial con los comandos de la tabla.
 5. Los avisos de calderos y equipo se publican en los canales Raider asociados. `/bis-proponer` envía una propuesta BIS que el raider puede editar, aceptar o rechazar.
 
 ### Horarios automáticos
@@ -45,10 +44,9 @@ Las tareas se ejecutan dentro del proceso del bot, sin cron. Las zonas IANA resp
 
 | Comando | Uso |
 |---|---|
-| `/vinculacion-buscar` | Busca y propone al usuario su main del roster. |
 | `/vinculacion-asignar` | Vincula un usuario con personaje y reino (oficiales). |
 | `/vinculacion-quitar` | Elimina el vínculo de un usuario (oficiales). |
-| `/vinculacion-listar` | Muestra vínculos, canales Raider, personajes sin vincular y propuestas pendientes (oficiales). |
+| `/vinculacion-listar` | Muestra vínculos, canales Raider y personajes sin vincular (oficiales). |
 | `/sincronizacion-ejecutar` | Sincroniza roles y canales de todas las vinculaciones (oficiales). |
 | `/sincronizacion-usuario` | Sincroniza solo al usuario elegido (oficiales). |
 | `/auditoria-revisar` | Comprueba vínculos, roles, roster, canales y calderos (oficiales). |
@@ -61,9 +59,9 @@ Las tareas se ejecutan dentro del proceso del bot, sin cron. Las zonas IANA resp
 | `/calderos-ver` | Muestra en privado el reparto actual de calderos (oficiales). |
 
 
-Salvo `/vinculacion-buscar`, todos los comandos requieren **Gestionar servidor** o uno de los roles de `OFFICER_ROLE_IDS`. Las respuestas de los comandos son privadas; los paneles, informes, propuestas BIS y recordatorios se publican en sus canales de destino.
+Todos los comandos requieren **Gestionar servidor** o uno de los roles de `OFFICER_ROLE_IDS`. Las respuestas de los comandos son privadas; los paneles, informes, propuestas BIS y recordatorios se publican en sus canales de destino.
 
-Las vinculaciones se guardan en `data/whitebird-wow-roles.sqlite`, incluidos el ID de usuario de Discord, main, reino y, si se creó con el bot de recruitment, el ID del canal personal de Raider. Se guarda el ID del canal para que el vínculo siga siendo correcto aunque se cambie su nombre. Blizzard valida que el personaje forma parte del roster y proporciona el rango; la API de perfil de Blizzard proporciona las profesiones. Los acentos cuentan como parte del nombre: `Agô` y `Agó` se consideran personajes distintos, también en la búsqueda automática. Al vincular manualmente, el nombre debe coincidir respetando sus acentos y el bot guarda la grafía exacta del roster de Blizzard. Si Blizzard no tiene profesiones disponibles, el bot conserva los roles de profesión que ya tuviera esa persona.
+Las vinculaciones se guardan en `data/whitebird-wow-roles.sqlite`, incluidos el ID de usuario de Discord, main, reino y, si se creó con el bot de recruitment, el ID del canal personal de Raider. Se guarda el ID del canal para que el vínculo siga siendo correcto aunque se cambie su nombre. Blizzard valida que el personaje forma parte del roster y proporciona el rango; la API de perfil de Blizzard proporciona las profesiones. Los acentos cuentan como parte del nombre: `Agô` y `Agó` se consideran personajes distintos. Al vincular manualmente, el nombre debe coincidir respetando sus acentos y el bot guarda la grafía exacta del roster de Blizzard. Si Blizzard no tiene profesiones disponibles, el bot conserva los roles de profesión que ya tuviera esa persona.
 
 El bot de recruitment puede compartir este mismo archivo SQLite y guardar automáticamente el personaje main y reino del apply al aceptarlo. En ese caso, monta la misma carpeta de datos del servidor en ambos contenedores; no copies la base de datos a otra ubicación. Después de la aceptación, ejecuta `/sincronizacion-ejecutar` o espera al siguiente ciclo automático para asignar los roles.
 
@@ -154,8 +152,6 @@ El encabezado muestra la mención del rol de Alquimista configurado como `Alchem
 Para publicar el mensaje inicial, ejecuta `/calderos-publicar canal:#canal-de-crafteos`. Después, cada cambio de asignación actualiza ese mensaje del bot. Discord no permite que el bot edite un mensaje escrito por una persona, así que la primera publicación crea un mensaje nuevo; el mensaje manual anterior se puede borrar.
 
 Los recordatorios de calderos son independientes de la sincronización de roles. Si una persona lleva ambos tipos de caldero, recibe un único mensaje con los dos. La asignación se resuelve por nombre de personaje: si no hay un vínculo único con canal Raider, se omite el aviso y se registra en los logs. Menciona únicamente a la persona correspondiente. Requiere que el bot pueda ver y enviar mensajes en el canal de crafteos y en los canales privados Raider.
-
-Las propuestas pendientes de `/vinculacion-buscar` se guardan temporalmente en memoria, caducan a los cinco minutos y se muestran en `/vinculacion-listar`. Si se reinicia el bot, esas propuestas desaparecen; los vínculos confirmados sí permanecen guardados en SQLite.
 
 ## Pruebas automáticas
 
@@ -285,7 +281,7 @@ Un oficial ejecuta `/bis-proponer raider:@miembro actividad:Raid` (también est�
 
 El feed de Blingtron no publica una recomendación de ranura Dedo para Priest Holy. Cuando se elige esa fuente, el bot muestra la ranura vacía, sin inventar un objeto, y permite rellenarla desde **Editar objeto**.
 
-Al aceptar, Whitebird guarda en SQLite la especialización, actividad, objetos, fuentes y datos de la guía como una lista asociada al raider; esa lista pasa a ser su lista activa. Los reemplazos que haga el raider actualizan la lista activa y se guardan en el historial de ediciones. Al rechazar, Whitebird borra la referencia activa del raider y conserva el registro de la decisión. La lista activa anterior también deja de estar activa al rechazar una nueva propuesta. Al crear otra propuesta, las anteriores en selección de especialización, construcción o revisión pasan a estar sustituidas. En la implementación actual, una propuesta que esté esperando la selección de fuente no se invalida en ese paso. Las propuestas BIS se guardan en SQLite y no tienen la caducidad de cinco minutos de las búsquedas de vinculación.
+Al aceptar, Whitebird guarda en SQLite la especialización, actividad, objetos, fuentes y datos de la guía como una lista asociada al raider; esa lista pasa a ser su lista activa. Los reemplazos que haga el raider actualizan la lista activa y se guardan en el historial de ediciones. Al rechazar, Whitebird borra la referencia activa del raider y conserva el registro de la decisión. La lista activa anterior también deja de estar activa al rechazar una nueva propuesta. Al crear otra propuesta, las anteriores en selección de especialización, construcción o revisión pasan a estar sustituidas. En la implementación actual, una propuesta que esté esperando la selección de fuente no se invalida en ese paso. Las propuestas BIS se guardan en SQLite.
 
 La fuente seleccionada y la fecha de consulta se conservan con la lista; Method también guarda el parche indicado por la guía. La aceptación guarda la lista en SQLite de Whitebird; el código no la sube a WoWAudit. La selección requiere `WOWAUDIT_API_KEY` para consultar la clase del personaje y que WoWAudit devuelva una ficha única del main vinculado. El bot necesita Ver canal, Enviar mensajes e Insertar enlaces en cada canal Raider. El catálogo de especializaciones se consulta en Blingtron incluso cuando se elige Method. Las guías no son simulaciones personalizadas y sus cambios de formato pueden impedir preparar una propuesta.
 
@@ -347,7 +343,7 @@ La inspección abre SQLite en modo de solo lectura y hace consultas GET a Discor
 
 Por defecto se usa `./data/whitebird-wow-roles.sqlite`, relativo al directorio desde el que se ejecuta Node.js. `DATABASE_PATH` permite cambiarlo; con Docker debe apuntar a una ubicación del volumen persistente (`/app/data`), para conservar los datos al recrear el contenedor.
 
-SQLite utiliza WAL y crea o migra las tablas al cargar `src/database.js`. Guarda vínculos y canales Raider, historial de roles, felicitaciones de ascenso, reparto y panel de calderos, notas publicadas, destino y estado de los informes y propuestas, decisiones y ediciones BIS. Las búsquedas de vinculación sin confirmar son el único estado descrito aquí que permanece exclusivamente en memoria.
+SQLite utiliza WAL y crea o migra las tablas al cargar `src/database.js`. Guarda vínculos y canales Raider, historial de roles, felicitaciones de ascenso, reparto y panel de calderos, notas publicadas, destino y estado de los informes y propuestas, decisiones y ediciones BIS.
 
 Para una copia sencilla, para el bot y cualquier otro proceso que comparta la base, copia la carpeta `data/` completa y vuelve a arrancarlos. Si haces una copia en caliente, utiliza un mecanismo de backup de SQLite compatible con WAL; copiar solo el archivo `.sqlite` mientras está en uso puede omitir cambios pendientes.
 
@@ -362,7 +358,7 @@ Si aparece un error de escritura de SQLite en Docker, comprueba los permisos de 
 | Archivo | Responsabilidad |
 |---|---|
 | `src/index.js` | Arranque, autorización de oficiales, interacciones, auditoría y programación diaria de roles y calderos. |
-| `src/register-commands.js` | Definición y registro de los 14 comandos del servidor. |
+| `src/register-commands.js` | Definición y registro de los 13 comandos del servidor. |
 | `src/raider-promotion.js` | Detección de Recluta → Raider, mensaje de felicitación y entrega sin duplicados. |
 | `src/wow-sync.js` | Blizzard OAuth, roster, búsqueda de personajes, roles y nombres de canales Raider. |
 | `src/database.js` | Esquema, migraciones y persistencia SQLite. |

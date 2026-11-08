@@ -89,11 +89,6 @@ async function fetchCharacterProfessions(name, realm, selectedRegion) {
 
 // Character accents are significant in WoW names: Agô and Agó must not resolve to the same character.
 const normalize = (value) => String(value || '').normalize('NFC').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
-const normalizeIgnoringAccents = (value) => String(value || '').normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
-
-function differsOnlyByAccents(left, right) {
-  return normalize(left) !== normalize(right) && normalizeIgnoringAccents(left) === normalizeIgnoringAccents(right);
-}
 
 function findRosterEntry(roster, name, realm) {
   const targetName = normalize(name);
@@ -101,44 +96,6 @@ function findRosterEntry(roster, name, realm) {
   return (roster.members || []).find(({ character }) =>
     normalize(character?.name) === targetName && normalize(character?.realm?.slug) === targetRealm
   ) || null;
-}
-
-function similarity(left, right) {
-  if (!left || !right) return 0;
-  if (left === right) return 1;
-  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
-  for (let row = 1; row <= left.length; row += 1) {
-    let diagonal = previous[0];
-    previous[0] = row;
-    for (let column = 1; column <= right.length; column += 1) {
-      const old = previous[column];
-      previous[column] = Math.min(
-        previous[column] + 1,
-        previous[column - 1] + 1,
-        diagonal + (left[row - 1] === right[column - 1] ? 0 : 1)
-      );
-      diagonal = old;
-    }
-  }
-  return 1 - previous[right.length] / Math.max(left.length, right.length);
-}
-
-export function rankGuildRosterCandidates(roster, aliases) {
-  const names = aliases.map(normalize).filter(Boolean);
-  const byKey = new Map();
-  for (const entry of roster.members || []) {
-    const name = entry.character?.name;
-    const realm = entry.character?.realm?.slug;
-    if (!name || !realm) continue;
-    const key = `${normalize(name)}@${normalize(realm)}`;
-    const candidateNames = [normalize(name), normalize(`${name}${realm}`)];
-    const score = Math.max(0, ...names.flatMap((alias) => candidateNames.map((candidate) =>
-      differsOnlyByAccents(alias, candidate) ? 0 : similarity(alias, candidate)
-    )));
-    const previous = byKey.get(key);
-    if (!previous || score > previous.score) byKey.set(key, { name, realm, score });
-  }
-  return [...byKey.values()].sort((left, right) => right.score - left.score);
 }
 
 function roleIsManageable(role, botMember) {
