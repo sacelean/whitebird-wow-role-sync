@@ -80,11 +80,12 @@ function blizzardResponse(body, status = 200) {
   return { ok: status >= 200 && status < 300, status, json: async () => body };
 }
 
-function mockBlizzard(t, { roster, professions = { primaries: [{ profession: { name: 'Alchemy' } }] }, professionStatus = 200 }) {
+function mockBlizzard(t, { roster, professions = { primaries: [{ profession: { name: 'Alchemy' } }] }, professionStatus = 200, profile = { name: 'Asherrna', realm: { slug: 'sanguino' } }, profileStatus = 200 }) {
   t.mock.method(globalThis, 'fetch', async (input) => {
     const url = String(input);
     if (url.includes('/roster')) return blizzardResponse(roster);
     if (url.includes('/professions')) return blizzardResponse(professions, professionStatus);
+    if (url.includes('/profile/wow/character/')) return blizzardResponse(profile, profileStatus);
     if (url.includes('oauth.battle.net')) return blizzardResponse({ access_token: 'test-token', expires_in: 3600 });
     throw new Error(`Petición inesperada en prueba: ${url}`);
   });
@@ -139,6 +140,47 @@ test('si el personaje sale del roster, asigna Viajante y retira roles de profesi
   assert.equal(member.roles.cache.has(roleIds.blacksmithing), false);
   assert.equal(report.outsideRosterDefaultApplied, 1);
 });
+
+test('el perfil de la misma guild protege roles y canal cuando falta en el roster', async (t) => {
+  mockBlizzard(t, { roster: { members: [] }, profile: {
+    name: 'Asherrna', realm: { slug: 'sanguino' },
+    guild: { key: { href: 'https://eu.api.blizzard.com/data/wow/guild/sanguino/whitebird?namespace=profile-eu' } }
+  } });
+  const { guild, changes } = makeGuild([roleIds.rank2, roleIds.alchemy]);
+  const report = await synchronizeWowRoles(guild, [linked]);
+  assert.deepEqual(changes, []);
+  assert.equal(report.outsideRosterDefaultApplied, 0);
+  assert.match(report.skipped[0], /su perfil confirma/);
+  assert.equal(report.channelsRenamed, 0);
+});
+
+test('otra guild en el perfil confirma la salida y permite retirar roles', async (t) => {
+  mockBlizzard(t, { roster: { members: [] }, profile: {
+    name: 'Asherrna', realm: { slug: 'sanguino' },
+    guild: { key: { href: 'https://eu.api.blizzard.com/data/wow/guild/uldum/whitebird?namespace=profile-eu' } }
+  } });
+  const { guild, member } = makeGuild([roleIds.rank2, roleIds.alchemy]);
+  const report = await synchronizeWowRoles(guild, [linked]);
+  assert.equal(report.outsideRosterDefaultApplied, 1);
+  assert.equal(member.roles.cache.has(roleIds.rank2), false);
+  assert.equal(member.roles.cache.has(roleIds.alchemy), false);
+});
+
+for (const scenario of [
+  { label: '404', profileStatus: 404 },
+  { label: '500', profileStatus: 500 },
+  { label: 'perfil incompleto', profile: {} },
+  { label: 'guild incompleta', profile: { name: 'Asherrna', realm: { slug: 'sanguino' }, guild: {} } }
+]) {
+  test(`conserva los roles si la segunda comprobación devuelve ${scenario.label}`, async (t) => {
+    mockBlizzard(t, { roster: { members: [] }, ...scenario });
+    const { guild, changes } = makeGuild([roleIds.rank2, roleIds.alchemy]);
+    const report = await synchronizeWowRoles(guild, [linked]);
+    assert.deepEqual(changes, []);
+    assert.match(report.skipped[0], /no se pudo confirmar la salida/);
+    assert.equal(report.channelsRenamed, 0);
+  });
+}
 
 test('si sale del roster y el usuario ya dejó Discord, lo omite sin intentar cambiar roles', async (t) => {
   mockBlizzard(t, { roster: { members: [] } });
@@ -436,6 +478,7 @@ test('roster usa el umbral de Blizzard, independientemente del nombre y mapeo de
     if (url.endsWith('/v1/characters')) return blizzardResponse([{ id: 1, name: 'Asherrna', realm: 'sanguino', role: 'Ranged' }]);
     if (url.includes('/roster')) return blizzardResponse(selectedRoster);
     if (url.includes('/professions')) return blizzardResponse({ primaries: [] });
+    if (url.includes('/profile/wow/character/')) return blizzardResponse({ name: 'Asherrna', realm: { slug: 'sanguino' } });
     return blizzardResponse({ access_token: 'test-token', expires_in: 3600 });
   });
   const { guild, member, roles } = makeGuild([roleIds.rank2]);
@@ -490,6 +533,7 @@ for (const raidRole of ['Tank', 'Healer', 'Ranged', null]) {
       if (url.endsWith('/v1/characters')) return blizzardResponse([{ id: 1, name: linked.character_name, realm: linked.realm_slug, role: raidRole }]);
       if (url.includes('/roster')) return blizzardResponse(rosterWith('Asherrna', 2));
       if (url.includes('/professions')) return blizzardResponse({ primaries: [] });
+    if (url.includes('/profile/wow/character/')) return blizzardResponse({ name: 'Asherrna', realm: { slug: 'sanguino' } });
       if (url.includes('oauth.battle.net')) return blizzardResponse({ access_token: 'test', expires_in: 3600 });
       throw new Error(`Petición inesperada: ${url}`);
     });

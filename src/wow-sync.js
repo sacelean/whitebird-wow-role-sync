@@ -82,6 +82,22 @@ export async function fetchGuildRoster() {
   return blizzardGet(`/data/wow/guild/${encodeURIComponent(realmSlug)}/${encodeURIComponent(guildSlug)}/roster`, 'profile', config.region);
 }
 
+async function characterStillInGuild(name, realm, selectedRegion) {
+  const profile = await blizzardGet(`/profile/wow/character/${encodeURIComponent(realm.toLowerCase())}/${encodeURIComponent(name.toLowerCase())}`, 'profile', selectedRegion);
+  if (normalize(profile?.name) !== normalize(name) || normalize(profile?.realm?.slug) !== normalize(realm)) {
+    throw new Error('el perfil no identifica al personaje vinculado');
+  }
+  // A successful character profile without a guild means the character is guildless.
+  if (profile.guild === undefined) return false;
+  const href = profile.guild?.key?.href;
+  if (!href) throw new Error('el perfil contiene datos de hermandad incompletos');
+  const url = new URL(href);
+  if (url.hostname !== `${selectedRegion}.api.blizzard.com` || !/^\/data\/wow\/guild\/[^/]+\/[^/]+$/.test(url.pathname)) {
+    throw new Error('el perfil contiene una referencia de hermandad no válida');
+  }
+  return decodeURIComponent(url.pathname).toLowerCase() === `/data/wow/guild/${realmSlug}/${guildSlug}`;
+}
+
 async function fetchCharacterProfessions(name, realm, selectedRegion) {
   // Blizzard's profile endpoints require the character name in lowercase.
   return blizzardGet(`/profile/wow/character/${encodeURIComponent(realm.toLowerCase())}/${encodeURIComponent(name.toLowerCase())}/professions`, 'profile', selectedRegion);
@@ -321,6 +337,15 @@ export async function synchronizeWowRoles(guild, linkedMembers, { saveLink, onRo
     }
 
     if (!rosterEntry) {
+      try {
+        if (await characterStillInGuild(characterName, characterRealm, config.region)) {
+          report.skipped.push(`${characterName}: ausente del roster, pero su perfil confirma que sigue en la guild; se conservan roles y canal hasta poder comprobar el rango.`);
+          continue;
+        }
+      } catch (error) {
+        report.skipped.push(`${characterName}: no se pudo confirmar la salida de la guild con su perfil (${error.message}); se conservan roles y canal.`);
+        continue;
+      }
       try {
         const changes = await reconcileRoles(member, new Set([config.defaultRankRoleId]), new Set([...managedIds, ...combatIds]), botMember, roleChange(link, characterName, characterRealm));
         report.ranksChecked += 1;
