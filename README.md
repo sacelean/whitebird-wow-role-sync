@@ -2,7 +2,7 @@
 
 [Release notes](RELEASE_NOTES.md)
 
-El panel de configuración se mantiene en el repositorio independiente `whitebird-control-panel`. Administra WoW Role Sync, Recruitment y Ruleta mediante rutas a sus archivos de configuración; no forma parte del código ni del despliegue de este bot.
+El panel de configuración se mantiene en el repositorio independiente [`Whitebird-control-pane`](https://github.com/sacelean/Whitebird-control-pane). Administra WoW Role Sync, Recruitment y Ruleta mediante rutas a sus archivos de configuración; no forma parte del código ni del despliegue de este bot.
 
 Bot de Discord para Whitebird: vincula mains del roster de Blizzard, sincroniza roles de rango y profesión, mantiene los nombres de los canales Raider y gestiona calderos. Opcionalmente integra informes de WoWAudit, avisos de encantamientos y gemas y propuestas de listas BIS de Method o Blingtron.
 
@@ -27,7 +27,7 @@ Funciona para un único servidor de Discord (`DISCORD_GUILD_ID`) y guarda su est
 1. Un oficial vincula el main de cada miembro con `/vinculacion-asignar`.
 2. La sincronización de roles se ejecuta automáticamente a las 4:00; un oficial también puede iniciarla con `/sincronizacion-ejecutar` o limitarla a una persona con `/sincronizacion-usuario`.
 3. Los oficiales gestionan vínculos, auditan el estado y consultan el historial con los comandos de la tabla.
-5. Los avisos de calderos y equipo se publican en los canales Raider asociados. `/bis-proponer` envía una propuesta BIS que el raider puede editar, aceptar o rechazar.
+4. Los avisos de calderos y equipo se publican en los canales Raider asociados. `/bis-proponer` envía una propuesta BIS que el raider puede editar, aceptar o rechazar.
 
 ### Horarios automáticos
 
@@ -343,13 +343,13 @@ La inspección abre SQLite en modo de solo lectura y hace consultas GET a Discor
 
 Por defecto se usa `./data/whitebird-wow-roles.sqlite`, relativo al directorio desde el que se ejecuta Node.js. `DATABASE_PATH` permite cambiarlo; con Docker debe apuntar a una ubicación del volumen persistente (`/app/data`), para conservar los datos al recrear el contenedor.
 
-SQLite utiliza WAL y crea o migra las tablas al cargar `src/database.js`. Guarda vínculos y canales Raider, historial de roles, felicitaciones de ascenso, reparto y panel de calderos, notas publicadas, destino y estado de los informes y propuestas, decisiones y ediciones BIS.
+SQLite utiliza WAL y crea o migra las tablas al cargar `src/database.js`. `wow_recruit_absences` conserva la primera ausencia de cada Recluta para aplicar la espera de 24 horas tras reinicios. Guarda vínculos y canales Raider, historial de roles, felicitaciones de ascenso, reparto y panel de calderos, notas publicadas, destino y estado de los informes y propuestas, decisiones y ediciones BIS.
 
 Para una copia sencilla, para el bot y cualquier otro proceso que comparta la base, copia la carpeta `data/` completa y vuelve a arrancarlos. Si haces una copia en caliente, utiliza un mecanismo de backup de SQLite compatible con WAL; copiar solo el archivo `.sqlite` mientras está en uso puede omitir cambios pendientes.
 
 Ejecuta una sola instancia de este bot: las tareas diarias no guardan una marca de envío persistente y varias instancias podrían duplicar avisos. Conserva `.env` y `data/` fuera de Git; ambos están excluidos también del contexto de construcción Docker.
 
-`/vinculacion-quitar` elimina únicamente el vínculo: no retira roles ni borra canales, listas BIS o asignaciones de calderos. Al crear o cambiar un vínculo, los roles se actualizan en la siguiente sincronización automática o al ejecutar uno de los comandos de sincronización.
+`/vinculacion-quitar` retira el rol `roster` y los roles de combate gestionables si `WOW_ROSTER_ROLE_ID` está configurado y el miembro tiene ese rol. Si esa retirada falla, conserva el vínculo e informa del error. No retira los roles de rango o profesión ni borra canales, listas BIS o asignaciones de calderos. Al crear o cambiar un vínculo, los roles se actualizan en la siguiente sincronización automática o al ejecutar uno de los comandos de sincronización.
 
 Si aparece un error de escritura de SQLite en Docker, comprueba los permisos de la carpeta `data/` del host: el contenedor se ejecuta como `node` (UID 1000). El bind mount exige que la carpeta exista antes de iniciar el servicio. Tras cambiar `.env`, recrea el contenedor con `docker compose up -d`; reiniciarlo sin recrearlo no actualiza las variables inyectadas por Compose.
 
@@ -361,6 +361,7 @@ Si aparece un error de escritura de SQLite en Docker, comprueba los permisos de 
 | `src/register-commands.js` | Definición y registro de los 13 comandos del servidor. |
 | `src/raider-promotion.js` | Detección de Recluta → Raider, mensaje de felicitación y entrega sin duplicados. |
 | `src/wow-sync.js` | Blizzard OAuth, roster, búsqueda de personajes, roles y nombres de canales Raider. |
+| `src/combat-roles.js` | Resolución de roles de combate y correspondencia entre especialización y rol de raid. |
 | `src/database.js` | Esquema, migraciones y persistencia SQLite. |
 | `src/daily-cauldron.js` | Resolución de asignaciones, agrupación de avisos y cálculo del siguiente horario diario. |
 | `src/cauldron-panel.js` | Presentación y actualización del panel de calderos. |
