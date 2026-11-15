@@ -15,3 +15,9 @@ El repositorio de contexto es privado. Si no hay acceso, indicarlo y continuar c
 - Actualizar el contexto compartido cuando la tarea autorizada cambie arquitectura, operación o estado relevante; registrar fecha y evidencia.
 - No desplegar ni modificar otros proyectos solo por estar mencionados en la documentación.
 - No guardar secretos, archivos .env, tokens, bases de datos ni datos personales en el contexto.
+
+## Conocimiento del chatbot (2026-11-15)
+
+Al cambiar funcionalidades, comandos, permisos, variables o integraciones, actualizar también Whitebird-context: STATUS.md y la entrada del componente en knowledge/bots.json. Mantener la documentación técnica de este repositorio. El chatbot sincroniza ese catálogo; no interpreta automáticamente el código ni estos Markdown.
+
+Registrar fecha, fuentes y revisión implementada. deployedRevision debe quedar null si no hay evidencia de despliegue; actualizarla solo tras verificar la revisión desplegada. No presentar cambios locales como disponibles en producción. Conservar el orden de topics del catálogo; para nuevos temas coordinar el enrutador del agente. Validar con npm run context:validate -- /ruta/bots.json desde whitebird-ai-agent. Si no hay acceso al contexto, declarar la actualización pendiente al cerrar la tarea. Nunca copiar secretos ni datos personales.
