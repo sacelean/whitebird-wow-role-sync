@@ -21,7 +21,7 @@ jobs:
         with:
           node-version: '22'
       - name: Test context notification without credentials
-        run: node --test test/context-notification.test.mjs
+        run: node --test scripts/check-context-notification.mjs
       - name: Build production image
         run: docker build -t whitebird-test .
       - name: Run tests without production credentials
