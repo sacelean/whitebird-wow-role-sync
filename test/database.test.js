@@ -150,3 +150,22 @@ test('upgrade keeps the selected destination and removes obsolete report tables'
   assert.equal(reopened.db.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE name IN ('wowaudit_loot_destinations','wowaudit_loot_panels','wowaudit_reports')").get().n,0);
  } finally { reopened.db.close(); }
 });
+
+test('ausencia de Recluta persiste, no renueva el plazo, aísla guild y se cancela o cambia de main', async () => {
+  const { trackRecruitAbsence, clearRecruitAbsence, removeWowLink } = await import('../src/database.js');
+  const link = { user_id: 'recruit-user', character_name: 'Main', realm_slug: 'sanguino' };
+  assert.equal(trackRecruitAbsence('recruit-guild', link, 1000), 1000);
+  assert.equal(trackRecruitAbsence('recruit-guild', link, 2000), 1000);
+  const Database = (await import('better-sqlite3')).default;
+  const reopened = new Database(process.env.DATABASE_PATH, { readonly: true });
+  try {
+    assert.equal(reopened.prepare('SELECT missing_since FROM wow_recruit_absences WHERE guild_id = ?').get('recruit-guild').missing_since, 1000);
+  } finally { reopened.close(); }
+  assert.equal(trackRecruitAbsence('other-guild', link, 2000), 2000);
+  assert.equal(trackRecruitAbsence('recruit-guild', { ...link, character_name: 'Other' }, 3000), 3000);
+  assert.equal(trackRecruitAbsence('recruit-guild', { ...link, realm_slug: 'other-realm' }, 4000), 4000);
+  clearRecruitAbsence('recruit-guild', link.user_id);
+  assert.equal(trackRecruitAbsence('recruit-guild', link, 5000), 5000);
+  removeWowLink('recruit-guild', link.user_id);
+  assert.equal(trackRecruitAbsence('recruit-guild', link, 6000), 6000);
+});

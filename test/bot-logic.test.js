@@ -166,6 +166,37 @@ test('otra guild en el perfil confirma la salida y permite retirar roles', async
   assert.equal(member.roles.cache.has(roleIds.alchemy), false);
 });
 
+for (const oldGuild of [undefined, { key: { href: 'https://eu.api.blizzard.com/data/wow/guild/sanguino/previous-guild?namespace=profile-eu' } }]) {
+  test(`Recluta conserva roles y canal con roster ausente y perfil antiguo ${oldGuild ? 'de otra guild' : 'sin guild'}`, async (t) => {
+    mockBlizzard(t, { roster: { members: [] }, profile: {
+      name: linked.character_name, realm: { slug: linked.realm_slug }, guild: oldGuild
+    } });
+    const { guild, changes, roles } = makeGuild([roleIds.rank2, roleIds.alchemy]);
+    roles.get(roleIds.rank2).name = ' Recluta ';
+    const channel = { id: 'recruit-channel', type: 0, name: 'recluta-asherrna-sanguino', setName: async () => assert.fail('no debe renombrar el canal') };
+    guild.channels.cache.set(channel.id, channel);
+    const report = await synchronizeWowRoles(guild, [{ ...linked, raider_channel_id: channel.id }], {
+      recruitAbsences: { track: () => 1000, clear: () => {} }, now: () => 1000,
+      onRoleChange: () => assert.fail('no debe registrar cambios'),
+      onRaiderSync: () => assert.fail('no debe felicitar')
+    });
+    assert.deepEqual(changes, []);
+    assert.equal(report.defaultRankApplied, 0);
+    assert.equal(report.channelsRenamed, 0);
+    assert.match(report.skipped[0], /Recluta ausente del roster/);
+  });
+}
+
+test('Recluta vuelve a sincronizar su rango cuando aparece en el roster', async (t) => {
+  mockBlizzard(t, { roster: rosterWith(linked.character_name, 0) });
+  const { guild, member, roles } = makeGuild([roleIds.rank2]);
+  roles.get(roleIds.rank2).name = 'Recluta';
+  const report = await synchronizeWowRoles(guild, [linked]);
+  assert.equal(member.roles.cache.has(roleIds.rank0), true);
+  assert.equal(member.roles.cache.has(roleIds.rank2), false);
+  assert.equal(report.ranksChecked, 1);
+});
+
 for (const scenario of [
   { label: '404', profileStatus: 404 },
   { label: '500', profileStatus: 500 },
@@ -547,3 +578,61 @@ for (const raidRole of ['Tank', 'Healer', 'Ranged', null]) {
     if (raidRole === 'Healer') assert.equal(report.roleChanges.filter(change => change.category === 'combate').length, 2);
   });
 }
+
+for (const elapsed of [24 * 60 * 60 * 1000 - 1, 24 * 60 * 60 * 1000, 25 * 60 * 60 * 1000]) {
+  test(`Recluta ausente durante ${elapsed} ms solo pierde roles al cumplir 24 h`, async t => {
+    mockBlizzard(t, { roster: { members: [] } });
+    const { guild, member, roles, changes } = makeGuild([roleIds.rank2, roleIds.alchemy]);
+    roles.get(roleIds.rank2).name = 'Recluta';
+    const since = 1000;
+    const report = await synchronizeWowRoles(guild, [linked], {
+      recruitAbsences: { track: () => since, clear: () => {} }, now: () => since + elapsed
+    });
+    const expired = elapsed >= 24 * 60 * 60 * 1000;
+    assert.equal(member.roles.cache.has(roleIds.default), expired);
+    assert.equal(member.roles.cache.has(roleIds.rank2), !expired);
+    assert.equal(member.roles.cache.has(roleIds.alchemy), !expired);
+    assert.equal(report.outsideRosterDefaultApplied, expired ? 1 : 0);
+    if (!expired) assert.deepEqual(changes, []);
+  });
+}
+
+for (const profileStatus of [404, 500]) {
+  test(`Recluta tras 24 h conserva roles si el perfil falla con ${profileStatus}`, async t => {
+    mockBlizzard(t, { roster: { members: [] }, profileStatus });
+    const { guild, roles, changes } = makeGuild([roleIds.rank2]);
+    roles.get(roleIds.rank2).name = 'Recluta';
+    const report = await synchronizeWowRoles(guild, [linked], {
+      recruitAbsences: { track: () => 0, clear: () => {} }, now: () => 24 * 60 * 60 * 1000
+    });
+    assert.deepEqual(changes, []);
+    assert.match(report.skipped[0], /no se pudo confirmar la salida/);
+  });
+}
+
+for (const rosterPresent of [false, true]) {
+  test(`cancela la ausencia de Recluta cuando ${rosterPresent ? 'reaparece en roster' : 'el perfil confirma Whitebird'}`, async t => {
+    mockBlizzard(t, { roster: rosterPresent ? rosterWith(linked.character_name, 2) : { members: [] }, profile: {
+      name: linked.character_name, realm: { slug: linked.realm_slug },
+      guild: { key: { href: 'https://eu.api.blizzard.com/data/wow/guild/sanguino/whitebird' } }
+    } });
+    const { guild, roles } = makeGuild([roleIds.rank2]);
+    roles.get(roleIds.rank2).name = 'Recluta';
+    const cleared = [];
+    await synchronizeWowRoles(guild, [linked], {
+      recruitAbsences: { track: () => 0, clear: (...args) => cleared.push(args) }, now: () => 24 * 60 * 60 * 1000
+    });
+    assert.deepEqual(cleared, [[guild.id, linked.user_id]]);
+  });
+}
+
+test('Recluta conserva roles si no puede persistir el plazo', async t => {
+  mockBlizzard(t, { roster: { members: [] } });
+  const { guild, roles, changes } = makeGuild([roleIds.rank2]);
+  roles.get(roleIds.rank2).name = 'Recluta';
+  const report = await synchronizeWowRoles(guild, [linked], {
+    recruitAbsences: { track: () => { throw new Error('SQLite unavailable'); } }
+  });
+  assert.deepEqual(changes, []);
+  assert.match(report.failed[0], /no se pudo comprobar el plazo/);
+});

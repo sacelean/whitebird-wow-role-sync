@@ -44,6 +44,8 @@ import {
   removeWowLink,
   recordWowSyncChanges,
   saveWowLink,
+  trackRecruitAbsence,
+  clearRecruitAbsence,
   seedCauldronAssignments,
   setCauldronAssignment,
   setCauldronPanel
@@ -376,6 +378,7 @@ async function runSync(guild, selectedLinks = null) {
   const linked = selectedLinks || getWowLinks(guild.id);
   if (!linked.length) return { synced: 0, skipped: [] };
   return synchronizeWowRoles(guild, linked, {
+    recruitAbsences: { track: trackRecruitAbsence, clear: clearRecruitAbsence },
     saveLink: saveWowLink,
     onRoleChange: (change) => recordWowSyncChanges([change]),
     onRaiderSync: event => notifyRaiderPromotion(event, raiderPromotionStore)

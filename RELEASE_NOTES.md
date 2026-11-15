@@ -1,5 +1,9 @@
 # Release notes — Whitebird WoW Role Sync
 
+## 2026-11-15 · Protección de nuevos reclutas
+
+- Si un Recluta falta del roster de Blizzard, se conservan sus roles y canal durante 24 horas desde la primera ausencia detectada, incluso tras reiniciar. Pasado el plazo, la siguiente sincronización comprueba su perfil antes de aplicar Viajante. Si reaparece en el roster, se cancela la espera.
+
 ## 2026-11-12 · Doble comprobación antes de retirar roles
 
 - Si un personaje falta en el roster de la guild, la sincronización consulta su perfil de Blizzard antes de retirarle roles por salida de la hermandad. Si sigue en la guild o no se puede verificar, conserva los roles y el canal e informa del motivo.

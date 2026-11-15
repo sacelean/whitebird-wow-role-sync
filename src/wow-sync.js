@@ -277,7 +277,7 @@ export async function removeRosterCombatRoles(member, config) {
   await reconcileRoles(member, new Set(), new Set(Object.values(roles)), botMember);
 }
 
-export async function synchronizeWowRoles(guild, linkedMembers, { saveLink, onRoleChange, onRaiderSync } = {}) {
+export async function synchronizeWowRoles(guild, linkedMembers, { saveLink, onRoleChange, onRaiderSync, recruitAbsences, now = Date.now } = {}) {
   const config = getWowConfig();
   const roster = await fetchGuildRoster();
   const { rankIds: rankRoleIds, membershipIds, professionIds: professionRoleIds, managedIds } = getManagedRoleSets(config);
@@ -337,8 +337,26 @@ export async function synchronizeWowRoles(guild, linkedMembers, { saveLink, onRo
     }
 
     if (!rosterEntry) {
+      const isRecruit = Object.values(config.rankRoles).some(id =>
+        member.roles.cache.has(id) && guild.roles.cache.get(id)?.name?.trim().toLocaleLowerCase('es-ES') === 'recluta'
+      );
+      if (isRecruit) {
+        try {
+          const currentTime = now();
+          const since = recruitAbsences?.track(guild.id, link, currentTime);
+          if (!Number.isFinite(since)) throw new Error('registro persistente de ausencia no disponible');
+          if (currentTime - since < 24 * 60 * 60 * 1000) {
+            report.skipped.push(`${characterName}: Recluta ausente del roster; se conservan roles y canal durante 24 h desde la primera ausencia detectada.`);
+            continue;
+          }
+        } catch (error) {
+          report.failed.push(`${characterName}: no se pudo comprobar el plazo de Recluta (${error.message}); se conservan roles y canal.`);
+          continue;
+        }
+      }
       try {
         if (await characterStillInGuild(characterName, characterRealm, config.region)) {
+          recruitAbsences?.clear(guild.id, link.user_id);
           report.skipped.push(`${characterName}: ausente del roster, pero su perfil confirma que sigue en la guild; se conservan roles y canal hasta poder comprobar el rango.`);
           continue;
         }
@@ -366,6 +384,10 @@ export async function synchronizeWowRoles(guild, linkedMembers, { saveLink, onRo
     }
 
     const character = rosterEntry.character;
+    try { recruitAbsences?.clear(guild.id, link.user_id); } catch (error) {
+      report.failed.push(`${characterName}: no se pudo cancelar el plazo de Recluta (${error.message}); se conservan roles y canal.`);
+      continue;
+    }
     if (link.character_name !== character.name || link.realm_slug !== character.realm.slug) {
       try {
       saveLink?.(guild.id, link.user_id, character.name, character.realm.slug);

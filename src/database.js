@@ -9,6 +9,14 @@ export const db = new Database(databasePath);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 db.exec(`
+  CREATE TABLE IF NOT EXISTS wow_recruit_absences (
+    guild_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    character_name TEXT NOT NULL,
+    realm_slug TEXT NOT NULL,
+    missing_since INTEGER NOT NULL,
+    PRIMARY KEY (guild_id, user_id)
+  );
   CREATE TABLE IF NOT EXISTS wow_links (
     guild_id TEXT NOT NULL,
     user_id TEXT NOT NULL,
@@ -89,7 +97,23 @@ export function savePublishedReleaseNote(guildId, releaseId, channelId, messageI
 }
 
 export function removeWowLink(guildId, userId) {
+  clearRecruitAbsence(guildId, userId);
   return db.prepare('DELETE FROM wow_links WHERE guild_id = ? AND user_id = ?').run(guildId, userId).changes;
+}
+
+export function trackRecruitAbsence(guildId, link, now) {
+  db.prepare(`INSERT INTO wow_recruit_absences (guild_id, user_id, character_name, realm_slug, missing_since)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(guild_id, user_id) DO UPDATE SET
+      character_name=excluded.character_name, realm_slug=excluded.realm_slug, missing_since=excluded.missing_since
+    WHERE character_name != excluded.character_name OR realm_slug != excluded.realm_slug`)
+    .run(guildId, link.user_id, link.character_name, link.realm_slug, now);
+  return db.prepare('SELECT missing_since FROM wow_recruit_absences WHERE guild_id = ? AND user_id = ?')
+    .get(guildId, link.user_id).missing_since;
+}
+
+export function clearRecruitAbsence(guildId, userId) {
+  db.prepare('DELETE FROM wow_recruit_absences WHERE guild_id = ? AND user_id = ?').run(guildId, userId);
 }
 
 export function getCauldronAssignments(guildId) {
