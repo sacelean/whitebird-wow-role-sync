@@ -375,3 +375,7 @@ Si aparece un error de escritura de SQLite en Docker, comprueba los permisos de 
 | `src/bis-lists.js` | Consulta de Method/Blingtron, extracción de objetos y presentación BIS. |
 | `src/release-notes.js` | Lectura, identificación por contenido y anuncio de la primera nota de versión. |
 | `test/` | Pruebas y fixtures sin credenciales reales. |
+
+## Documentación del chatbot
+
+Mantener [docs/knowledge.json](docs/knowledge.json) junto con cada cambio de comportamiento. La pipeline publica la versión verificada en este mismo repositorio y Whitebird-context la recoge con acceso de lectura. Ver [flujo y comprobaciones](docs/context-publication.md).
