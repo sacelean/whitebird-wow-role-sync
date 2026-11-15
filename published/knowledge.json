@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
   "repository": "sacelean/whitebird-wow-role-sync",
-  "revision": "1e97b9c572a53a863de63b6f8bde1c7f41a305e1",
-  "workflowRevision": "1e97b9c572a53a863de63b6f8bde1c7f41a305e1",
-  "runNumber": 21,
-  "runUrl": "https://github.com/sacelean/whitebird-wow-role-sync/actions/runs/43732998819",
-  "verifiedAt": "2026-11-15T16:01:22.757Z",
+  "revision": "a5c6ba2865d63dd1adc79805afd2e51f3268cccd",
+  "workflowRevision": "a5c6ba2865d63dd1adc79805afd2e51f3268cccd",
+  "runNumber": 23,
+  "runUrl": "https://github.com/sacelean/whitebird-wow-role-sync/actions/runs/43736875993",
+  "verifiedAt": "2026-11-15T16:42:23.152Z",
   "verification": "pipeline",
   "document": {
     "schemaVersion": 1,
