@@ -17,6 +17,11 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test context notification without credentials
+        run: node --test test/context-notification.test.mjs
       - name: Build production image
         run: docker build -t whitebird-test .
       - name: Run tests without production credentials
@@ -41,11 +46,6 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Test context notification without credentials
-        run: node --test test/context-notification.test.mjs
       - name: Configure SSH and deploy
         shell: bash
         run: bash scripts/deploy-oci.sh
