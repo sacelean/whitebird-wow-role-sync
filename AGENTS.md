@@ -16,12 +16,17 @@ El repositorio de contexto es privado. Si no hay acceso, indicarlo y continuar c
 - No desplegar ni modificar otros proyectos solo por estar mencionados en la documentación.
 - No guardar secretos, archivos .env, tokens, bases de datos ni datos personales en el contexto.
 
-## Conocimiento del chatbot (2026-11-15)
 
-Al cambiar funcionalidades, comandos, permisos, variables o integraciones, actualizar también Whitebird-context: STATUS.md y la entrada del componente en knowledge/bots.json. Mantener la documentación técnica de este repositorio. El chatbot sincroniza ese catálogo; no interpreta automáticamente el código ni estos Markdown.
+## Documentación publicada para el chatbot
 
-Registrar fecha, fuentes y revisión implementada. deployedRevision debe quedar null si no hay evidencia de despliegue; actualizarla solo tras verificar la revisión desplegada. No presentar cambios locales como disponibles en producción. Conservar el orden de topics del catálogo; para nuevos temas coordinar el enrutador del agente. Validar con npm run context:validate -- /ruta/bots.json desde whitebird-ai-agent. Si no hay acceso al contexto, declarar la actualización pendiente al cerrar la tarea. Nunca copiar secretos ni datos personales.
-
-## Publicación mediante pipeline propia del contexto
-
-El agente lee un archivo local publicado por Whitebird-context. Para los textos usar implementedRevision con SHA completo de 40 caracteres. Registrar despliegues verificados en deployments/<id>.json mediante el notificador de CI, no editar deployedRevision para activar texto. Consultar docs/context-publication.md y Whitebird-context/knowledge/README.md. Las explicaciones pendientes no sustituyen las compatibles con la versión desplegada.
+Al cambiar funcionalidades, comandos, permisos, configuración o integraciones,
+actualizar docs/knowledge.json en este mismo repositorio y la documentación técnica.
+Registrar reviewedAt y source; mantener topics en el orden del enrutador del agente.
+Validar con node scripts/publish-knowledge.mjs --validate.
+La pipeline publica una copia en la rama knowledge-published solo después de verificar
+el despliegue. El SHA se añade automáticamente. Whitebird-context recoge esa copia
+con acceso de solo lectura y genera el catálogo. No editar el catálogo agregado ni
+registrar despliegues directamente en otro repositorio. No guardar secretos o datos
+personales en la documentación. Los cambios de arquitectura/operación siguen
+registrándose en Whitebird-context/STATUS.md con fecha y evidencia.
+Ver docs/context-publication.md para activación y comprobaciones.

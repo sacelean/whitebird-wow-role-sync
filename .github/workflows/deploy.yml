@@ -20,14 +20,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Test context notification without credentials
-        run: node --test scripts/check-context-notification.mjs
+      - name: Validate source documentation and its publisher
+        run: |
+          node scripts/publish-knowledge.mjs --validate
+          node --test scripts/check-knowledge.mjs
       - name: Build production image
         run: docker build -t whitebird-test .
       - name: Run tests without production credentials
         run: docker run --rm whitebird-test npm test
 
   deploy:
+    permissions:
+      contents: write
     needs: test
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
@@ -50,8 +54,8 @@ jobs:
         shell: bash
         run: bash scripts/deploy-oci.sh
 
-      - name: Record verified deployment in Whitebird-context
-        if: vars.CONTEXT_REPORT_ENABLED == 'true'
+
+      - name: Publish verified documentation in this repository
         env:
-          WHITEBIRD_CONTEXT_WRITE_TOKEN: ${{ secrets.WHITEBIRD_CONTEXT_WRITE_TOKEN }}
-        run: node scripts/record-context-deployment.mjs
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/publish-knowledge.mjs
