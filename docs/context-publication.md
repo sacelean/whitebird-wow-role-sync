@@ -36,3 +36,31 @@ No despliega el bot ni verifica automáticamente la declaración.
 Migración: el anterior secret de escritura al contexto y la variable de activación
 de notificaciones ya no se utilizan y pueden eliminarse de este repositorio.
 No se crean credenciales ni se despliegan servicios al preparar este cambio.
+
+## Redespliegues, restauraciones y conflictos
+
+El publicador registra la revisión que acaba de verificarse, incluso si se está
+reejecutando un workflow antiguo. runNumber identifica el workflow y no decide qué
+versión está actualmente desplegada. Cada pipeline serializa despliegue,
+comprobación y publicación con su grupo de concurrencia. Mantener esas tres fases
+en el mismo bloqueo; un despliegue manual externo requiere comprobar de nuevo
+la revisión antes de publicar. Un rollback manual del proceso no publica por sí solo.
+
+La escritura usa el SHA del archivo como control de concurrencia. Si otro proceso
+cambia ese documento durante la publicación, falla explícitamente y exige revisar
+el despliegue antes de reintentar. Solo se reintenta si el documento no ha cambiado.
+Una comprobación correcta acredita el despliegue, no la exactitud semántica de toda
+la explicación: el contenido todavía necesita revisión humana y pruebas de contrato.
+
+## Ejecuciones históricas anteriores a la corrección
+
+Reejecutar un workflow histórico usa también su script histórico: un cambio en
+main no reescribe esa ejecución. Para corregir la publicación después de restaurar
+una revisión con código anterior al arreglo, iniciar UNA EJECUCIÓN NUEVA del
+workflow Publish documentation for a verified restored revision desde main.
+Indicar el SHA desplegado y confirmar que está comprobado y que la documentación
+lo describe. Por defecto se toma docs/knowledge.json de ese SHA; si allí no existe,
+indicar otro SHA de documentación cuya correspondencia se haya revisado.
+El publicador se carga de main, nunca ejecuta scripts de la revisión documental,
+y usa el mismo grupo de concurrencia que el despliegue. No instala ni verifica
+automáticamente el bot. Si falta el documento, falla sin publicar.

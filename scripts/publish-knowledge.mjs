@@ -25,11 +25,17 @@ export async function publishKnowledge(doc, {env=process.env,fetchFn=fetch}={}) 
   if(!created.ok && created.status!==422) throw Error(`Cannot create own publication branch (${created.status})`);
  } else if(!ref.ok) throw Error(`Cannot read own publication branch (${ref.status})`);
  const snapshot={schemaVersion:1,repository,revision,workflowRevision:env.GITHUB_SHA,runNumber:Number(env.GITHUB_RUN_NUMBER),runUrl:`https://github.com/${repository}/actions/runs/${env.GITHUB_RUN_ID}`,verifiedAt:new Date().toISOString(),verification:env.DEPLOYED_REVISION?'manual':'pipeline',document:doc};
+ // Deployment jobs serialize verification and publication. Run numbers identify
+ // workflow creation, not the order in which versions were actually deployed.
+ let baselineSha;
+ let baselineRead=false;
  for(let attempt=0;attempt<3;attempt++) {
   const current=await request(`/contents/published/knowledge.json?ref=${branch}`);
   let sha;
-  if(current.ok){const file=await current.json();sha=file.sha;const old=JSON.parse(Buffer.from(file.content,'base64').toString('utf8'));if(old.runNumber>snapshot.runNumber)return;}
+  if(current.ok){const file=await current.json();sha=file.sha;}
   else if(current.status!==404)throw Error(`Cannot read own publication (${current.status})`);
+  if(baselineRead && sha!==baselineSha) throw Error('Publication changed concurrently. Recheck the deployed revision before publishing again.');
+  baselineSha=sha;baselineRead=true;
   const result=await request('/contents/published/knowledge.json','PUT',{branch,sha,message:`Publish verified ${id} knowledge for ${revision}`,content:Buffer.from(JSON.stringify(snapshot,null,2)+'\n').toString('base64')});
   if(result.ok)return;
   if(![409,422].includes(result.status))throw Error(`Cannot publish own documentation (${result.status})`);
