@@ -1,0 +1,65 @@
+name: Publish documentation for a verified restored revision
+on:
+  workflow_dispatch:
+    inputs:
+      deployed_revision:
+        description: Full SHA currently running after a verified restore
+        required: true
+        type: string
+      documentation_revision:
+        description: Reviewed documentation commit SHA (empty uses deployed SHA)
+        required: false
+        type: string
+      confirmed:
+        description: I checked the running revision and that its documentation matches
+        required: true
+        default: false
+        type: boolean
+permissions:
+  contents: read
+concurrency:
+  group: oci-production
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main' && inputs.confirmed
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Validate revision identifiers
+        env:
+          TARGET_REVISION: ${{ inputs.deployed_revision }}
+          DOCUMENT_REVISION: ${{ inputs.documentation_revision || inputs.deployed_revision }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$TARGET_REVISION" =~ ^[a-f0-9]{40}$ ]] || { echo 'Invalid deployed SHA'; exit 1; }
+          [[ "$DOCUMENT_REVISION" =~ ^[a-f0-9]{40}$ ]] || { echo 'Invalid documentation SHA'; exit 1; }
+      - name: Check out current publisher
+        uses: actions/checkout@v4
+        with:
+          path: publisher
+          persist-credentials: false
+      - name: Check out reviewed documentation only
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.documentation_revision || inputs.deployed_revision }}
+          path: reviewed-docs
+          sparse-checkout: docs/knowledge.json
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Load reviewed data without executing historical code
+        run: |
+          test -f reviewed-docs/docs/knowledge.json
+          cp reviewed-docs/docs/knowledge.json publisher/docs/knowledge.json
+      - name: Publish manually confirmed restored revision
+        working-directory: publisher
+        env:
+          DEPLOYED_REVISION: ${{ inputs.deployed_revision }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/publish-knowledge.mjs
